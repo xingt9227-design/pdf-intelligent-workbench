@@ -1,16 +1,144 @@
-# React + Vite
+# 本地 PDF 智能工作台
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+这是一个面向软件设计课程设计的本地 PDF 工具项目。系统把常用 PDF 处理、隐私脱敏和论文阅读集中在一个前端应用中，重点展示 PDF 文件解析、页面处理、可视化编辑、本地任务记录和论文辅助阅读流程。
 
-Currently, two official plugins are available:
+## 功能模块
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### 普通 PDF 工具库
 
-## React Compiler
+- 拆分 PDF
+- 合并 PDF
+- 页面删除
+- 页面排序
+- 页面旋转
+- 页面裁剪
+- 文本框编辑
+- 遮盖块编辑
+- 高亮批注
+- 水印和签名
+- 文档搜索
+- 基础 PDF 转 Word
+- 任务队列
+- 导出记录
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 隐私脱敏模式
 
-## Expanding the ESLint configuration
+- 手机号识别
+- 邮箱识别
+- 身份证号识别
+- 银行卡号识别
+- 脱敏任务记录
+- 脱敏 PDF 生成
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+当前脱敏识别主要基于正则规则，适合课程设计演示。扫描版 PDF 或复杂版式 PDF 需要额外 OCR 和坐标定位能力。
+
+### 论文阅读模式
+
+- 真实 PDF 连续阅读
+- PDF.js 文本层选择
+- 目录解析和标题跳转
+- 本地书签
+- 本地注释
+- 页面缩略图
+- 搜索定位
+- 选中文本翻译
+- 当前章节翻译
+- 整篇论文翻译
+- 章节总结
+- 阅读笔记
+- 推荐资料
+- 术语和基础知识
+- 阅读进度
+- 图表公式记录
+- 引用追踪
+- 问题清单
+- 重点卡片
+- 阅读报告导出
+- 多论文对比演示
+- 本地知识库检索
+
+论文阅读中的翻译、总结和推荐采用本地规则和演示数据生成，没有接入在线大模型接口。
+
+## 技术栈
+
+- React
+- Vite
+- PDF.js
+- pdf-lib
+- docx
+- JSZip
+- IndexedDB
+- lucide-react
+
+## 本地运行
+
+安装依赖。
+
+```bash
+npm install
+```
+
+启动开发服务。
+
+```bash
+npm run dev
+```
+
+构建生产版本。
+
+```bash
+npm run build
+```
+
+预览构建结果。
+
+```bash
+npm run preview
+```
+
+如果系统 npm 缓存所在磁盘空间不足，可以把缓存放到项目目录。
+
+```bash
+npm --cache ./.npm-cache run build
+```
+
+## 项目结构
+
+```text
+src
+├─ assets
+├─ components
+│  ├─ common.jsx
+│  └─ tools
+├─ data
+│  ├─ paperData.js
+│  └─ toolConfig.js
+├─ services
+│  └─ localDb.js
+├─ utils
+│  └─ download.js
+├─ App.css
+├─ App.jsx
+├─ index.css
+└─ main.jsx
+```
+
+## 实现说明
+
+PDF 阅读器使用 PDF.js 渲染页面和文本层，阅读区采用连续滚动模式。滚动时只更新当前页码，目录、搜索结果和缩略图点击时才执行主动跳转。
+
+PDF 处理功能主要使用 pdf-lib 操作页面、旋转、裁剪、合并、遮盖、水印和编辑元素。拆分结果使用 JSZip 打包。Word 导出使用 docx 生成基础文档。
+
+本地数据通过 IndexedDB 保存，包括导入文档、阅读状态、任务队列和导出记录。
+
+## 已知限制
+
+- 扫描版 PDF 暂不支持 OCR
+- PDF 转 Word 只能生成基础文本和页面预览，不能完整还原复杂版式
+- 自动脱敏暂未做到按识别文本坐标精确遮盖
+- 翻译和总结是本地规则生成，不是真实在线 AI 结果
+- 多论文对比和推荐资料包含演示型数据
+
+## 课程设计定位
+
+本项目适合作为 PDF 智能工作台原型，展示前端文件处理、PDF 渲染、本地存储、任务状态管理和论文阅读辅助功能。项目重点在可运行的本地交互流程，不依赖后端服务。
