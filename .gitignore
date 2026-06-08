@@ -12,7 +12,11 @@ dist
 dist-ssr
 .npm-cache
 test-results
+server/data
 *.local
+.env
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*

@@ -1,6 +1,5 @@
 export const createModes = (icons) => [
-  { id: 'normal', label: '普通模式', icon: icons.Layers },
-  { id: 'privacy', label: '隐私脱敏模式', icon: icons.ShieldCheck },
+  { id: 'normal', label: 'PDF工具', icon: icons.Layers },
   { id: 'paper', label: '论文阅读模式', icon: icons.BookOpen },
 ]
 
@@ -34,12 +33,6 @@ export const createToolGroups = (icons) => [
       { name: '文档搜索', icon: icons.Search, desc: '搜索文件名、正文和操作记录' },
     ],
   },
-]
-
-export const createPrivacyTools = (icons) => [
-  { name: '自动识别敏感信息', value: '手机号、邮箱、身份证号、银行卡号', icon: icons.Wand2 },
-  { name: '手动框选脱敏', value: '拖拽区域后永久写入遮盖块', icon: icons.SquareDashedMousePointer },
-  { name: '脱敏前后版本', value: '保留原始版本、脱敏版本和操作记录', icon: icons.FileCheck2 },
 ]
 
 export const createLeftTabs = (icons) => [

@@ -4,7 +4,6 @@ import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib'
 import JSZip from 'jszip'
 import {
   Archive,
-  BookMarked,
   BookOpen,
   Bookmark,
   Brain,
@@ -12,7 +11,6 @@ import {
   ChevronRight,
   Columns3,
   Download,
-  Edit3,
   FileCheck2,
   FileText,
   Highlighter,
@@ -20,7 +18,6 @@ import {
   Layers,
   Lightbulb,
   ListChecks,
-  LockKeyhole,
   MessageSquareText,
   NotebookPen,
   PanelLeft,
@@ -30,13 +27,11 @@ import {
   RotateCw,
   Scissors,
   Search,
-  ShieldCheck,
   Sparkles,
   SquareDashedMousePointer,
   Stamp,
   Tags,
   Upload,
-  Wand2,
 } from 'lucide-react'
 import {
   cards,
@@ -48,19 +43,19 @@ import {
   notes,
   outline,
   questions,
-  recommendations,
   reportSections,
   rightPanelContent,
   summaryBlocks,
   terms,
 } from './data/paperData'
-import { createLeftTabs, createModes, createPrivacyTools, createRightTabs, createToolGroups } from './data/toolConfig'
+import { createLeftTabs, createModes, createRightTabs, createToolGroups } from './data/toolConfig'
 import { IconButton, ResultPanel, TaskCenter } from './components/common'
 import { CropBoxEditor } from './components/tools/CropBoxEditor'
 import { OverlayBoxEditor } from './components/tools/OverlayBoxEditor'
 import { TextHighlightEditor } from './components/tools/TextHighlightEditor'
 import { TextBoxEditor } from './components/tools/TextBoxEditor'
 import { WatermarkEditor } from './components/tools/WatermarkEditor'
+import { requestAi } from './services/aiClient'
 import { localDb } from './services/localDb'
 import { buildDocxBlobFromPdfPages, buildDocxBlobFromText, downloadBlob } from './utils/download'
 import './App.css'
@@ -92,20 +87,21 @@ const iconMap = {
   RotateCw,
   Scissors,
   Search,
-  ShieldCheck,
   Sparkles,
   SquareDashedMousePointer,
   Stamp,
   Tags,
-  Wand2,
 }
 
 const modes = createModes(iconMap)
 const toolGroups = createToolGroups(iconMap)
-const privacyTools = createPrivacyTools(iconMap)
-const leftTabs = createLeftTabs(iconMap)
+const leftTabs = [
+  ...createLeftTabs(iconMap).slice(0, 3),
+  { id: 'chat', label: 'AI 对话', icon: MessageSquareText },
+  ...createLeftTabs(iconMap).slice(3),
+]
 const rightTabs = createRightTabs(iconMap)
-const PAPER_PARSE_VERSION = 2
+const PAPER_PARSE_VERSION = 5
 
 const getDefaultToolOptions = (toolName) => ({
   mode: toolName === '页面旋转' ? 'range' : 'single',
@@ -181,12 +177,357 @@ const isHeadingLine = (line) => {
   return false
 }
 
-const cleanHeadingTitle = (line) => normalizeLine(line).replace(/\s+/g, ' ')
+const cleanHeadingTitle = (line) => normalizeLine(line)
+  .replace(/^[.\s·?]+/, '')
+  .replace(/\s+/g, ' ')
+  .trim()
 
 const getHeadingLevel = (heading = '') => {
   const match = heading.match(/^(\d+(?:\.\d+){0,3})\.?\s+/)
   if (!match) return /abstract|references|bibliography/i.test(heading) ? 1 : 0
   return match[1].split('.').length
+}
+
+const normalizeHeadingKey = (heading = '') => cleanHeadingTitle(heading)
+  .toLowerCase()
+  .replace(/^\d+(?:\.\d+){0,3}\.?\s*/, '')
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim()
+
+const hashText = (text = '') => {
+  let hash = 0
+  String(text).slice(0, 600).split('').forEach((char) => {
+    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0
+  })
+  return Math.abs(hash).toString(36)
+}
+
+const wordHints = {
+  uav: '无人机',
+  remote: '远程的，遥感语境中常指遥感',
+  image: '图像',
+  images: '图像',
+  small: '小型的，小目标语境中指尺寸较小',
+  detecting: '检测，识别目标位置',
+  detect: '检测',
+  traditional: '传统的',
+  lightweight: '轻量级的',
+  method: '方法',
+  methods: '方法',
+  due: '由于，因为',
+  difficulty: '困难',
+  high: '高的',
+  background: '背景',
+  improve: '提升，改进',
+  improves: '提升，改进',
+  replacing: '替换',
+  conv: '卷积',
+  convolution: '卷积',
+  retrain: '重新训练',
+  fine: '精细的',
+  grained: '细粒度的',
+  module: '模块',
+  better: '更好的',
+  efficient: '高效的',
+  efficiently: '高效地',
+  structure: '结构',
+  structures: '结构',
+  parameter: '参数',
+  parameters: '参数量',
+  mean: '平均值',
+  average: '平均的',
+  dataset: '数据集',
+  experiments: '实验',
+  multi: '多',
+  offers: '提供',
+  effective: '有效的',
+  reduction: '减少，降低',
+  reduce: '减少，降低',
+  reducing: '减少，降低',
+  improvement: '提升，改进',
+  challenging: '具有挑战性的',
+  feature: '特征',
+  extraction: '提取',
+  interference: '干扰',
+  computational: '计算相关的',
+  complexity: '复杂度',
+  replace: '替换',
+  replacing: '替换',
+  train: '训练',
+  trained: '训练得到的',
+  retain: '保留',
+  refined: '精细化的',
+  fusion: '融合',
+  incorporate: '引入，整合',
+  incorporates: '引入，整合',
+  preserve: '保留',
+  transfer: '传递，迁移',
+  evaluation: '评估',
+  compared: '相比，对比',
+  baseline: '基线模型',
+  additional: '额外的',
+  demonstrate: '证明，展示',
+  robustness: '鲁棒性',
+  precision: '精确率',
+  score: '分数，指标得分',
+  solution: '解决方案',
+  target: '目标',
+  targets: '目标',
+  sensing: '感知，遥感语境中指传感观测',
+  recognition: '识别',
+  robust: '鲁棒的，能抵抗环境变化的',
+  modality: '模态，数据或传感器类型',
+  modalities: '多种模态',
+  embedded: '嵌入式的',
+  pretraining: '预训练',
+  beneficial: '有益的',
+  accuracy: '准确率',
+  robustness: '鲁棒性',
+  architecture: '网络结构',
+  backbone: '骨干网络',
+  infrared: '红外的',
+  detection: '检测',
+  dataset: '数据集',
+  datasets: '数据集',
+  parameters: '参数量',
+  performance: '性能表现',
+  generalization: '泛化能力',
+  distribution: '分布',
+  out: '外部或超出',
+  domain: '领域',
+  tuning: '微调',
+}
+
+const normalizeLookupWord = (word = '') => {
+  const normalized = word.toLowerCase().replace(/[^a-z0-9-]/g, '')
+  if (wordHints[normalized]) return normalized
+  const candidates = [
+    normalized.replace(/ies$/, 'y'),
+    normalized.replace(/ves$/, 'f'),
+    normalized.replace(/ing$/, ''),
+    normalized.replace(/ing$/, 'e'),
+    normalized.replace(/ed$/, ''),
+    normalized.replace(/ed$/, 'e'),
+    normalized.replace(/es$/, ''),
+    normalized.replace(/s$/, ''),
+  ].filter((item) => item && item.length >= 2)
+  return candidates.find((item) => wordHints[item]) || normalized
+}
+
+const explainWord = (word = '') => {
+  const normalized = normalizeLookupWord(word)
+  if (!normalized) return ''
+  const cleanWord = String(word).replace(/[^\w-]/g, '')
+  if (wordHints[normalized]) return `${cleanWord} ${wordHints[normalized]}`
+  return `${cleanWord} 需要结合当前段落确认`
+}
+
+const inferWordTip = (word, translatedText = '') => {
+  const baseTip = explainWord(word)
+  const normalized = normalizeLookupWord(word)
+  const text = translatedText || ''
+  const phraseHints = [
+    { words: ['remote', 'sensing'], zh: '遥感' },
+    { words: ['target', 'detection', 'detecting'], zh: '目标检测' },
+    { words: ['feature', 'extraction'], zh: '特征提取' },
+    { words: ['computational', 'complexity'], zh: '计算复杂度' },
+    { words: ['background', 'interference'], zh: '背景干扰' },
+    { words: ['fine', 'grained'], zh: '细粒度' },
+    { words: ['parameter', 'parameters'], zh: '参数量' },
+  ]
+  const phrase = phraseHints.find((item) => item.words.includes(normalized) && text.includes(item.zh))
+  return phrase ? `${String(word).replace(/[^\w-]/g, '')} ${phrase.zh}` : baseTip
+}
+
+const formatTranslationText = (text = '') => normalizeLine(text)
+  .replace(/^本地规则译文。本文围绕[^。]*。?/, '')
+  .replace(/^本地规则译文。本段来自[^。]*。?/, '')
+  .replace(/当前版本未接入在线翻译引擎[^。]*。?$/g, '')
+  .replace(/\s+/g, ' ')
+  .replace(/([。！？])\s*/g, '$1\n')
+  .split('\n')
+  .map((line) => line.trim())
+  .filter(Boolean)
+
+const buildParagraphRegions = (textContent, viewport) => {
+  const rawLines = textContent.items
+    .filter((item) => item?.str?.trim() && Array.isArray(item.transform))
+    .filter((item) => Math.abs(item.transform[0] || 0) >= Math.abs(item.transform[1] || 0))
+    .map((item) => {
+      const x = item.transform[4] || 0
+      const y = item.transform[5] || 0
+      const height = item.height || Math.abs(item.transform[3] || item.transform[0] || 10)
+      const width = item.width || item.str.length * height * 0.45
+      const leftTop = viewport.convertToViewportPoint(x, y + height)
+      const leftBottom = viewport.convertToViewportPoint(x, y)
+      return {
+        text: item.str,
+        x,
+        y,
+        left: leftBottom[0],
+        top: leftTop[1],
+        right: leftBottom[0] + width * viewport.scale,
+        bottom: leftBottom[1],
+        height: Math.max(8, height * viewport.scale),
+      }
+    })
+  const lineGroups = []
+  rawLines
+    .sort((a, b) => Math.abs(b.y - a.y) > 2 ? b.y - a.y : a.x - b.x)
+    .forEach((item) => {
+      const line = lineGroups.find((candidate) => Math.abs(candidate.y - item.y) <= 2.5)
+      if (line) line.items.push(item)
+      else lineGroups.push({ y: item.y, items: [item] })
+    })
+  const lines = lineGroups
+    .flatMap((line) => {
+      const sorted = line.items.sort((a, b) => a.x - b.x)
+      const visualLines = []
+      sorted.forEach((item) => {
+        const previous = visualLines.at(-1)
+        const previousItem = previous?.items.at(-1)
+        const gap = previousItem ? item.left - previousItem.right : 0
+        const averageHeight = Math.max(8, item.height || previousItem?.height || 10)
+        if (!previous || gap > averageHeight * 7.5) {
+          visualLines.push({ items: [item] })
+        } else {
+          previous.items.push(item)
+        }
+      })
+      return visualLines.map((visualLine) => {
+        const items = visualLine.items
+        return {
+          text: normalizeLine(items.map((item) => item.text).join('')),
+          left: Math.min(...items.map((item) => item.left)),
+          right: Math.max(...items.map((item) => item.right)),
+          top: Math.min(...items.map((item) => item.top)),
+          bottom: Math.max(...items.map((item) => item.bottom)),
+          y: line.y,
+        }
+      })
+    })
+    .filter((line) => line.text.length > 2)
+    .sort((a, b) => a.top - b.top || a.left - b.left)
+
+  const columns = []
+  lines.forEach((line) => {
+    const column = columns.find((candidate) => {
+      const overlap = Math.max(0, Math.min(candidate.right, line.right) - Math.max(candidate.left, line.left))
+        / Math.max(1, Math.min(candidate.right - candidate.left, line.right - line.left))
+      return Math.abs(candidate.left - line.left) < 95 || overlap > 0.58
+    })
+    if (column) {
+      column.lines.push(line)
+      column.left = Math.min(column.left, line.left)
+      column.right = Math.max(column.right, line.right)
+    } else {
+      columns.push({ left: line.left, right: line.right, lines: [line] })
+    }
+  })
+
+  const paragraphs = columns.flatMap((column) => {
+    const columnParagraphs = []
+    column.lines
+      .sort((a, b) => a.top - b.top || a.left - b.left)
+      .forEach((line) => {
+        const previous = columnParagraphs.at(-1)
+        const lineHeight = Math.max(10, line.bottom - line.top)
+        const verticalGap = previous ? line.top - previous.bottom : 0
+        const captionLike = /^(figure|fig\.|table)\s*\d+/i.test(line.text)
+        const overlap = previous
+          ? Math.max(0, Math.min(previous.right, line.right) - Math.max(previous.left, line.left)) / Math.max(1, Math.min(previous.right - previous.left, line.right - line.left))
+          : 1
+        const startsIndentedParagraph = previous
+          && /[.!?。！？]$/.test(previous.text.trim())
+          && line.left - previous.left > 28
+          && verticalGap < lineHeight * 1.4
+        const hasLargeGap = previous && verticalGap > lineHeight * 1.65
+        const hasColumnDrift = previous && overlap < 0.34
+        const continuesVisualParagraph = previous && overlap >= 0.55 && verticalGap <= lineHeight * 1.45
+        const shouldStart = !previous || captionLike || (!continuesVisualParagraph && (startsIndentedParagraph || hasLargeGap || hasColumnDrift))
+        if (shouldStart) {
+          columnParagraphs.push({
+            id: `p-${columnParagraphs.length + 1}`,
+            text: line.text,
+            left: line.left,
+            right: line.right,
+            top: line.top,
+            bottom: line.bottom,
+          })
+        } else {
+          previous.text = normalizeLine(`${previous.text}${previous.text.endsWith('-') ? '' : ' '}${line.text}`)
+          previous.left = Math.min(previous.left, line.left)
+          previous.right = Math.max(previous.right, line.right)
+          previous.top = Math.min(previous.top, line.top)
+          previous.bottom = Math.max(previous.bottom, line.bottom)
+        }
+      })
+    return columnParagraphs
+  })
+  const mergedParagraphs = []
+  paragraphs
+    .filter((item) => item.text.length > 18)
+    .sort((a, b) => a.top - b.top || a.left - b.left)
+    .forEach((item) => {
+      const previous = mergedParagraphs.at(-1)
+      const itemHeight = Math.max(12, item.bottom - item.top)
+      const gap = previous ? item.top - previous.bottom : 0
+      const overlap = previous
+        ? Math.max(0, Math.min(previous.right, item.right) - Math.max(previous.left, item.left)) / Math.max(1, Math.min(previous.right - previous.left, item.right - item.left))
+        : 0
+      if (previous && gap <= itemHeight * 1.2 && overlap >= 0.45 && !/^(figure|fig\.|table)\s*\d+/i.test(item.text)) {
+        previous.text = normalizeLine(`${previous.text}${previous.text.endsWith('-') ? '' : ' '}${item.text}`)
+        previous.left = Math.min(previous.left, item.left)
+        previous.right = Math.max(previous.right, item.right)
+        previous.top = Math.min(previous.top, item.top)
+        previous.bottom = Math.max(previous.bottom, item.bottom)
+      } else {
+        mergedParagraphs.push({ ...item })
+      }
+    })
+
+  return mergedParagraphs
+    .map((item) => ({
+      ...item,
+      left: Math.max(0, item.left - 4),
+      top: Math.max(0, item.top - 3),
+      width: Math.max(24, item.right - item.left + 8),
+      height: Math.max(18, item.bottom - item.top + 6),
+    }))
+}
+
+const splitReaderTextItems = (textContent) => {
+  const items = textContent.items.flatMap((item) => {
+    if (!item?.str || item.str.length <= 1 || item.str.length > 180 || !Array.isArray(item.transform)) return [item]
+    const chars = Array.from(item.str)
+    const visibleCount = chars.filter((char) => char !== ' ').length || chars.length
+    const spaceCount = chars.length - visibleCount
+    if (visibleCount <= 1) return [item]
+    const totalWidth = item.width || 0
+    const transform = item.transform
+    const baseX = transform[4] || 0
+    const baseY = transform[5] || 0
+    const angleLength = Math.hypot(transform[0] || 0, transform[1] || 0) || 1
+    const unitX = (transform[0] || angleLength) / angleLength
+    const unitY = (transform[1] || 0) / angleLength
+    const weightedCount = visibleCount + spaceCount * 0.42
+    let advance = 0
+    return chars.map((char) => {
+      const ratio = char === ' ' ? 0.42 : 1
+      const charWidth = totalWidth > 0 ? (totalWidth * ratio) / weightedCount : 0
+      const nextItem = {
+        ...item,
+        str: char,
+        width: charWidth,
+        transform: [...transform],
+      }
+      nextItem.transform[4] = baseX + unitX * advance
+      nextItem.transform[5] = baseY + unitY * advance
+      advance += charWidth
+      return nextItem
+    })
+  })
+  return { ...textContent, items }
 }
 
 const extractPdfPages = async (bytes) => {
@@ -393,7 +734,10 @@ const buildKnowledgeItems = (documentsForIndex, paperState) => {
   })
   const stateItems = [
     ...(paperState.cards || []).map((card) => ({ type: '卡片', title: card.title, detail: card.desc })),
-    ...(paperState.bookmarks || []).map((item) => ({ type: '书签', title: item, detail: '阅读位置' })),
+    ...(paperState.bookmarks || []).map((item) => {
+      const bookmark = typeof item === 'string' ? { title: item } : item
+      return { type: '书签', title: bookmark.title, detail: bookmark.page ? `第 ${bookmark.page} 页` : '阅读位置' }
+    }),
     ...(paperState.comments || []).map((item) => ({ type: '注释', title: item, detail: '阅读批注' })),
     ...(paperState.notes ? [{ type: '笔记', title: '当前阅读笔记', detail: paperState.notes }] : []),
   ]
@@ -433,18 +777,84 @@ const extractAbstract = (pages) => {
   return firstText.slice(0, 900)
 }
 
+const cleanReferenceUrl = (value = '') => value
+  .replace(/[)\].,;]+$/g, '')
+  .replace(/^doi:/i, '')
+
+const makeReferenceLink = (reference = '') => {
+  const text = normalizeLine(reference)
+  const url = text.match(/https?:\/\/[^\s)]+/i)?.[0]
+  if (url) return { href: cleanReferenceUrl(url), label: '网页链接' }
+
+  const doi = text.match(/\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i)?.[0]
+  if (doi) return { href: `https://doi.org/${cleanReferenceUrl(doi)}`, label: 'DOI 跳转' }
+
+  const arxiv = text.match(/\barxiv[:\s]*([0-9]{4}\.[0-9]{4,5}(?:v\d+)?)/i)?.[1]
+  if (arxiv) return { href: `https://arxiv.org/abs/${arxiv}`, label: 'arXiv 跳转' }
+
+  const query = text
+    .replace(/^\[\d+\]\s*/, '')
+    .replace(/^\d+\.\s*/, '')
+    .replace(/\bhttps?:\/\/\S+/ig, '')
+    .slice(0, 240)
+  return {
+    href: `https://www.semanticscholar.org/search?q=${encodeURIComponent(query)}&sort=relevance`,
+    label: '论文检索',
+  }
+}
+
 const extractReferences = (pages) => {
-  const all = pages.map((page) => page.text).join('\n')
-  const referenceText = all.split(/\n\s*(?:references|bibliography)\s*\n/i).pop() || ''
-  return referenceText
-    .split(/\n+/)
+  let startPageIndex = -1
+  let startLineIndex = -1
+  pages.forEach((page, pageIndex) => {
+    const lines = page.lines || []
+    lines.forEach((line, lineIndex) => {
+      if (/^(references|bibliography)$/i.test(normalizeLine(line)) && pageIndex >= Math.floor(pages.length * 0.45)) {
+        startPageIndex = pageIndex
+        startLineIndex = lineIndex
+      }
+    })
+  })
+  if (startPageIndex < 0) return []
+
+  const referenceLines = pages.slice(startPageIndex).flatMap((page, pageOffset) => {
+    const lines = page.lines || []
+    return pageOffset === 0 ? lines.slice(startLineIndex + 1) : lines
+  })
+  const referenceText = referenceLines.join('\n')
+  const collectMatches = (pattern) => {
+    const matches = []
+    let match = pattern.exec(referenceText)
+    while (match) {
+      matches.push({
+        id: Number(match[1]) || matches.length + 1,
+        title: normalizeLine(match[2] || ''),
+        link: makeReferenceLink(match[2] || ''),
+        saved: false,
+      })
+      match = pattern.exec(referenceText)
+    }
+    return matches
+  }
+  const numbered = collectMatches(/\[(\d+)\]\s*([\s\S]*?)(?=\n?\s*\[\d+\]\s|$)/g)
+  const dotted = numbered.length > 1 ? [] : collectMatches(/(?:^|\n)\s*(\d+)\.\s+([\s\S]*?)(?=\n\s*\d+\.\s+|$)/g)
+  const candidates = numbered.length > 1 ? numbered : dotted
+  const cleaned = candidates
+    .map((item, index) => ({ ...item, id: item.id || index + 1 }))
+    .filter((item) => item.title.length > 30 && item.title.length < 1200)
+    .filter((item) => /(?:\b(19|20)\d{2}\b|arxiv|doi|Proceedings|Conference|Journal|IEEE|CVPR|ICCV|ECCV|NeurIPS|ICLR|AAAI|ACM|Springer|Elsevier|Transactions)/i.test(item.title))
+    .filter((item) => !/^(figure|fig\.|table)\s*\d+/i.test(item.title))
+
+  if (cleaned.length > 0) return cleaned
+  return referenceLines
     .map(normalizeLine)
-    .filter((line) => line.length > 28)
-    .filter((line) => /\b(19|20)\d{2}\b|\[\d+\]|et al\.|arxiv|github/i.test(line))
-    .slice(0, 12)
+    .filter((line) => line.length > 40 && line.length < 500)
+    .filter((line) => /(?:\b(19|20)\d{2}\b|arxiv|doi|Proceedings|Conference|Journal|IEEE|CVPR|ICCV|ECCV|NeurIPS|ICLR|AAAI)/i.test(line))
+    .filter((line) => !/^(figure|fig\.|table)\s*\d+/i.test(line))
     .map((title, index) => ({
       id: index + 1,
       title,
+      link: makeReferenceLink(title),
       saved: false,
     }))
 }
@@ -476,20 +886,90 @@ const extractOutline = (pages, title, abstract) => {
   return outlineItems.sort((a, b) => a.page === b.page ? (b.y || 0) - (a.y || 0) : a.page - b.page)
 }
 
+const findHeadingLineOnPage = (pages, item) => {
+  const targetKey = normalizeHeadingKey(item.title)
+  if (!targetKey) return null
+  const page = pages.find((candidate) => candidate.page === item.page)
+  if (!page) return null
+  const lines = page.lineObjects || []
+  return lines.find((line) => normalizeHeadingKey(line.text) === targetKey)
+    || lines.find((line) => {
+      const lineKey = normalizeHeadingKey(line.text)
+      return lineKey && (lineKey.includes(targetKey) || targetKey.includes(lineKey))
+    })
+    || null
+}
+
+const alignOutlineToPageText = (pages, outlineItems = []) => outlineItems.map((item) => {
+  const matchedLine = findHeadingLineOnPage(pages, item)
+  if (!matchedLine) return item
+  return {
+    ...item,
+    title: cleanHeadingTitle(item.title),
+    y: matchedLine.y,
+    x: matchedLine.x,
+    matchedText: matchedLine.text,
+  }
+})
+
 const median = (values = []) => {
   if (values.length === 0) return 0
   const sorted = [...values].sort((a, b) => a - b)
   return sorted[Math.floor(sorted.length / 2)]
 }
 
+const stopTermWords = new Set([
+  'the', 'a', 'an', 'and', 'or', 'of', 'for', 'in', 'on', 'to', 'with', 'by', 'from', 'as', 'at',
+  'this', 'that', 'these', 'those', 'we', 'our', 'their', 'it', 'its', 'they', 'is', 'are', 'was',
+  'were', 'be', 'been', 'being', 'table', 'figure', 'fig', 'section', 'appendix', 'page', 'paper',
+  'proceedings', 'ieee', 'cvf', 'conference', 'journal', 'press', 'copyright',
+])
+
+const termKnowledge = {
+  ImageNet: '大规模图像预训练数据集。这里用于判断预训练对超小模型是否仍有帮助。',
+  ConvNets: '卷积神经网络。本文讨论超小 ConvNets 在红外目标检测中的鲁棒性。',
+  EfficientNet: '高效卷积网络系列。常作为小模型或边缘端模型的对比基线。',
+  LLVIP: '低光可见光和红外配对数据集。可用于低照度目标检测和跨模态研究。',
+  FLIR: '红外图像数据集。常用于热成像目标检测和自动驾驶场景评估。',
+  OOD: '分布外泛化。表示测试场景与训练分布不一致时模型的稳定性。',
+  RGB: '可见光图像模态。本文会与红外图像模态进行跨域对比。',
+  mAP: '平均精度均值。目标检测任务中常用的性能指标。',
+  Robustness: '鲁棒性。表示模型在噪声、跨域或环境变化下保持性能的能力。',
+  Pretraining: '预训练。先在大规模数据上学习通用特征，再迁移到目标任务。',
+  'Object Detection': '目标检测。定位并识别图像中的目标类别。',
+  'Infrared Object Detection': '红外目标检测。利用热红外图像识别行人、车辆等目标。',
+  'Ultra Small ConvNets': '超小卷积网络。参数量很小，适合边缘设备，但泛化能力更容易受限。',
+  'Cross Domain Detection': '跨域检测。训练域和测试域不同，重点考察模型迁移能力。',
+}
+
+const shouldKeepTerm = (term, text) => {
+  const clean = term.trim()
+  const lower = clean.toLowerCase()
+  if (clean.length < 3 || clean.length > 48) return false
+  if (stopTermWords.has(lower)) return false
+  if (/^\d+$/.test(clean)) return false
+  if (/^(The|For|Table|Figure|In Proceedings of)$/i.test(clean)) return false
+  if (termKnowledge[clean]) return true
+  const contextPattern = /(model|network|dataset|detection|infrared|pretrain|robust|domain|benchmark|metric|convnet|imagenet|thermal|object)/i
+  return contextPattern.test(clean) || new RegExp(`${clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.{0,80}${contextPattern.source}`, 'i').test(text)
+}
+
+const describeTerm = (term, count) => {
+  if (termKnowledge[term]) return termKnowledge[term]
+  if (/dataset|imagenet|llvip|flir/i.test(term)) return `${term} 是本文相关的数据集或数据来源，需要关注它在实验设置中的作用。`
+  if (/model|network|convnet|efficientnet/i.test(term)) return `${term} 是模型或网络结构概念，重点看它的参数规模、精度和部署场景。`
+  if (/detection|domain|robust|pretrain/i.test(term)) return `${term} 是本文的核心任务或评估维度，建议结合方法和实验结果理解。`
+  return `${term} 在文中出现 ${count} 次，属于需要结合上下文理解的关键词。`
+}
+
 const extractTerms = (pages) => {
   const text = pages.map((page) => page.text).join(' ')
-  const known = ['CNN', 'Transformer', 'ImageNet', 'DOTA', 'FAIR1M', 'HRSCO2016', 'mAP', 'LSKNet', 'remote sensing', 'object detection']
+  const known = Object.keys(termKnowledge)
   const phraseCounts = new Map()
-  const phraseRegex = /\b(?:[A-Z][A-Za-z0-9-]+|[A-Z]{2,})(?:\s+(?:[A-Z][A-Za-z0-9-]+|of|for|and|in|with|Network|Detection|Dataset|Metric)){0,4}\b/g
+  const phraseRegex = /\b(?:[A-Z][A-Za-z0-9-]+|[A-Z]{2,})(?:\s+(?:[A-Z][A-Za-z0-9-]+|and|Network|Detection|Dataset|Metric|Models?|ConvNets?)){0,3}\b/g
   ;[...text.matchAll(phraseRegex)].forEach((match) => {
-    const term = normalizeLine(match[0])
-    if (term.length < 3 || term.length > 48) return
+    const term = cleanHeadingTitle(match[0])
+    if (!shouldKeepTerm(term, text)) return
     phraseCounts.set(term, (phraseCounts.get(term) || 0) + 1)
   })
   known.forEach((term) => {
@@ -499,11 +979,11 @@ const extractTerms = (pages) => {
   })
   return Array.from(phraseCounts.entries())
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 14)
+    .slice(0, 8)
     .map(([term, count]) => ({
       term,
       count,
-      desc: `该术语在文档中出现 ${count} 次。阅读时建议结合摘要、方法和实验章节理解它的作用。`,
+      desc: describeTerm(term, count),
     }))
 }
 
@@ -524,7 +1004,7 @@ const buildPaperData = (pages, fallbackTitle, nativeOutline = []) => {
   const title = extractTitleFromFirstPage(pages, fallbackTitle)
   const abstract = extractAbstract(pages)
   const parsedOutline = extractOutline(pages, title, abstract)
-  const nativeItems = nativeOutline
+  const nativeItems = alignOutlineToPageText(pages, nativeOutline)
     .filter((item) => item.page >= 1 && item.page <= pages.length)
     .sort((a, b) => a.page === b.page ? (b.y || 0) - (a.y || 0) : a.page - b.page)
   const outlineItems = nativeItems.length > 0
@@ -568,6 +1048,81 @@ const cloneBytesForPdfJs = (bytes) => new Uint8Array(bytes).slice()
 const getCurrentSection = (paperData, currentPage = 1) => {
   const sections = paperData?.sections || []
   return [...sections].reverse().find((item) => currentPage >= item.page) || sections[0] || null
+}
+
+const translateFigureAnalysis = (text = '') => {
+  const clean = cleanPdfExtractedText(text)
+  if (!clean) return ''
+  const lower = clean.toLowerCase()
+  if (/out-of-distribution|ood/.test(lower) && /imagenet/.test(lower)) {
+    return '该图展示超小模型在分布外场景下的表现。作者强调 ImageNet 预训练并非对所有模型都稳定有效，主要只在前几个模型规模上带来帮助。'
+  }
+  if (/backbone params|mflops|detector params|complexity/.test(lower)) {
+    return '该表对比不同模型的骨干网络参数量、计算量和检测器复杂度，用来说明模型规模变小时，计算开销和检测性能之间的权衡。'
+  }
+  if (/flir|llvip|dataset|resolution|images/.test(lower)) {
+    return '这段说明实验数据集和输入设置，重点交代图像来源、分辨率、类别和训练测试划分。'
+  }
+  if (/pre-training|pretrain|training|sgd|epoch/.test(lower)) {
+    return '这段说明预训练和训练细节，包括训练轮数、学习率、优化器和数据增强设置。'
+  }
+  return translateAcademicSentence(clean).slice(0, 180) || clean.slice(0, 180)
+}
+
+const extractContextAfterMatch = (text, matchIndex, maxLength = 520) => {
+  if (matchIndex < 0) return ''
+  const nextText = text.slice(matchIndex, matchIndex + maxLength)
+  const sentences = splitSentences(nextText)
+  return sentences.slice(0, 3).join(' ')
+}
+
+const inferFigureFormulaItems = (paperData, currentPage = 1) => {
+  const page = paperData?.pageTexts?.find((item) => item.page === currentPage)
+  const text = cleanPdfExtractedText(page?.text || '')
+  if (!text) return []
+  const section = getCurrentSection(paperData, currentPage)
+  const items = []
+  const pushItem = (type, title, detail, source = '') => {
+    if (items.some((item) => item.title === title)) return
+    items.push({
+      type,
+      title,
+      meta: `第 ${currentPage} 页 · ${section?.title || '正文'} · ${detail}`,
+      source: source || '',
+      analysis: translateFigureAnalysis(source || text),
+    })
+  }
+
+  const figureMatch = text.match(/\b(?:Figure|Fig\.?)\s*([0-9]+)\b/i)
+  if (figureMatch) {
+    pushItem(
+      '图表',
+      `图 ${figureMatch[1]} ${text.includes('OOD') ? '分布外性能曲线' : '当前页图像结果'}`,
+      '根据图题线索识别',
+      extractContextAfterMatch(text, figureMatch.index),
+    )
+  }
+
+  const tableMatch = text.match(/\bTable\s*([0-9]+)\b/i)
+  if (tableMatch || /Backbone Params|MFLOPs|Detector Params/i.test(text)) {
+    const tableIndex = tableMatch?.index ?? Math.max(text.search(/Backbone Params/i), 0)
+    pushItem(
+      '表格',
+      tableMatch ? `表 ${tableMatch[1]} 实验数据表` : '当前页模型参数表',
+      '包含参数量或计算量信息',
+      extractContextAfterMatch(text, tableIndex),
+    )
+  }
+
+  const formulaMatch = text.match(/\(([0-9]{1,2})\)|=\s*[A-Za-z0-9_{}^\\+\-*/().\s]{8,}/)
+  if (formulaMatch && !figureMatch) pushItem('公式', `公式 ${formulaMatch[1] || '当前页'} 推导项`, '根据编号或等式线索识别', extractContextAfterMatch(text, formulaMatch.index || 0))
+
+  if (/mAP|accuracy|robustness|pre-training|pretraining/i.test(text)) {
+    const metricIndex = text.search(/mAP|accuracy|robustness|pre-training|pretraining/i)
+    pushItem('指标', '性能指标与实验结论', '关注 mAP、鲁棒性和预训练影响', extractContextAfterMatch(text, metricIndex))
+  }
+
+  return items.slice(0, 4)
 }
 
 const cleanPdfExtractedText = (text = '') => String(text)
@@ -669,20 +1224,6 @@ const makeLocalSummary = (section, paperData) => {
   }
 }
 
-const makeRecommendations = (paperData) => {
-  const keywordItems = (paperData?.keywords || []).slice(0, 5).map((keyword) => ({
-    title: `${keyword} 相关论文与代码仓库`,
-    type: '关键词推荐',
-    score: '本地匹配',
-  }))
-  const referenceItems = (paperData?.references || []).slice(0, 5).map((ref) => ({
-    title: ref.title,
-    type: '参考文献',
-    score: '引用追踪',
-  }))
-  return [...keywordItems, ...referenceItems].slice(0, 8)
-}
-
 const makeReadingReport = (paperData, paperState, aiOutputs) => {
   const section = getCurrentSection(paperData, paperState.currentPage)
   const summary = makeLocalSummary(section, paperData)
@@ -700,7 +1241,7 @@ const makeReadingReport = (paperData, paperState, aiOutputs) => {
 }
 
 function App() {
-  const [mode, setMode] = useState('paper')
+  const [mode, setMode] = useState('normal')
   const [leftTab, setLeftTab] = useState('outline')
   const [rightTab, setRightTab] = useState('translate')
   const [documentList, setDocumentList] = useState(documents)
@@ -709,10 +1250,9 @@ function App() {
   const [importMessage, setImportMessage] = useState('请选择 PDF 文件')
   const [readerResetKey, setReaderResetKey] = useState(0)
   const [searchResults, setSearchResults] = useState([])
-  const [redactionResults, setRedactionResults] = useState([])
   const [redactionPlan, setRedactionPlan] = useState([])
   const [aiOutputs, setAiOutputs] = useState({})
-  const [activeTool, setActiveTool] = useState(null)
+  const [activeTool, setActiveTool] = useState(() => toolGroups[0]?.tools[0] || null)
   const [toolFiles, setToolFiles] = useState([])
   const [toolPageCards, setToolPageCards] = useState([])
   const [exportRecords, setExportRecords] = useState([])
@@ -720,7 +1260,8 @@ function App() {
     currentPage: 1,
     currentPageText: '',
     currentPageTextPage: null,
-    bookmarks: ['方法章节', '实验设置', '结论段落'],
+    activeParagraph: null,
+    bookmarks: [],
     comments: ['第 3 页摘要批注', '第 9 页方法问题', '第 17 页实验备注'],
     searchKeyword: 'method',
     notes: '这里记录当前章节的新想法，可以绑定页码、章节或选中文本。',
@@ -737,6 +1278,7 @@ function App() {
     bookmarks: paperState.bookmarks,
     comments: paperState.comments,
     notes: paperState.notes,
+    activeParagraph: paperState.activeParagraph,
     selectedText: paperState.selectedText,
     selectionPage: paperState.selectionPage,
     translationMode: paperState.translationMode,
@@ -825,7 +1367,7 @@ function App() {
       record,
       ...current,
     ])
-    localDb.put(localDb.stores.exports, record)
+    localDb.put(localDb.stores.exports, { ...record, blob: undefined, blobStored: Boolean(blob) })
   }
 
   function updateDocument(id, patch) {
@@ -1042,7 +1584,8 @@ function App() {
     if (toolName === '拆分 PDF') {
       if (options.mode === 'single') {
         const zip = new JSZip()
-        for (const pageIndex of pdfDoc.getPageIndices()) {
+        const selectedPages = resolveSelectedPages(pdfDoc.getPageCount(), { mode: 'all' }, pageCardsForRun)
+        for (const pageIndex of selectedPages) {
           const singlePageDoc = await PDFDocument.create()
           const [page] = await singlePageDoc.copyPages(pdfDoc, [pageIndex])
           singlePageDoc.addPage(page)
@@ -1469,7 +2012,7 @@ function App() {
           </div>
           <div>
             <h1>本地 PDF 智能工作台</h1>
-            <p><span className="section-label">{activeMode.label}</span> · {mode === 'paper' ? '论文阅读工作区' : mode === 'privacy' ? '隐私脱敏工作区' : 'PDF 工具库'}</p>
+            <p><span className="section-label">{activeMode.label}</span> · {mode === 'paper' ? '论文阅读工作区' : 'PDF 工具库'}</p>
           </div>
         </div>
         <div className="topbar-actions">
@@ -1521,7 +2064,6 @@ function App() {
         />
       ) : (
         <ToolWorkspace
-          privacy={mode === 'privacy'}
           documents={documentList}
           activeDocumentId={activeDocumentId}
           setActiveDocumentId={setActiveDocumentId}
@@ -1529,11 +2071,6 @@ function App() {
           addTask={addTask}
           searchResults={searchResults}
           activeDocument={activeDocument}
-          redactionResults={redactionResults}
-          setRedactionResults={setRedactionResults}
-          setRedactionPlan={setRedactionPlan}
-          extractText={extractText}
-          exportRedactedPdf={exportRedactedPdf}
           activeTool={activeTool}
           setActiveTool={setActiveTool}
           toolFiles={toolFiles}
@@ -1549,19 +2086,12 @@ function App() {
 }
 
 function ToolWorkspace({
-  privacy,
   documents,
   activeDocumentId,
   setActiveDocumentId,
   tasks,
   addTask,
   searchResults,
-  activeDocument,
-  redactionResults,
-  setRedactionResults,
-  setRedactionPlan,
-  extractText,
-  exportRedactedPdf,
   activeTool,
   setActiveTool,
   toolFiles,
@@ -1571,29 +2101,6 @@ function ToolWorkspace({
   runToolWithFiles,
   exportRecords,
 }) {
-  const runRedactionScan = async () => {
-    addTask('隐私脱敏识别', '处理中')
-    try {
-      if (!activeDocument?.bytes) {
-        setRedactionResults([{ type: '提示', value: '请先导入真实 PDF' }])
-        addTask('隐私脱敏识别等待文档', '等待中')
-        return
-      }
-      const pages = await extractPdfPages(activeDocument.bytes)
-      const matches = findSensitiveMatches(pages)
-      const plan = createPageLineRedactions(pages, matches)
-      setRedactionPlan(plan)
-      setRedactionResults(matches.length > 0
-        ? matches.map((item) => ({ type: `${item.type} 第 ${item.page} 页`, value: item.value }))
-        : [{ type: '结果', value: pages.some((page) => page.text.trim()) ? '未发现常见敏感信息' : '未提取到文字层，扫描件需要接入 OCR 后识别' }])
-      addTask('隐私脱敏识别完成', '成功')
-    } catch {
-      setRedactionResults([{ type: '错误', value: '文本提取失败，扫描版 PDF 需要 OCR' }])
-      setRedactionPlan([])
-      addTask('隐私脱敏识别失败', '等待中')
-    }
-  }
-
   if (activeTool) {
     return (
         <ToolDetail
@@ -1644,19 +2151,6 @@ function ToolWorkspace({
       </aside>
 
       <section className="tool-main">
-        {privacy && (
-          <div className="privacy-strip">
-            <div>
-              <LockKeyhole size={22} />
-              <span>
-                <strong>脱敏模块已启用</strong>
-                <small>系统只在当前模式下执行敏感信息识别</small>
-              </span>
-            </div>
-            <button type="button" onClick={runRedactionScan}>开始识别</button>
-          </div>
-        )}
-
         <div className="tool-grid">
           {toolGroups.map((group) => (
             <section className="tool-section" key={group.title}>
@@ -1680,29 +2174,6 @@ function ToolWorkspace({
           ))}
         </div>
 
-        {privacy && (
-          <section className="redaction-panel">
-            <h3>隐私脱敏能力</h3>
-            <div className="redaction-list">
-              {privacyTools.map((item) => {
-                const Icon = item.icon
-                return (
-                  <div className="redaction-item" key={item.name}>
-                    <Icon size={21} />
-                    <span>
-                      <strong>{item.name}</strong>
-                      <small>{item.value}</small>
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-            <ResultPanel title="识别结果" items={redactionResults.map((item) => `${item.type} ${item.value}`)} />
-            <button className="privacy-export" type="button" onClick={exportRedactedPdf}>
-              生成脱敏 PDF
-            </button>
-          </section>
-        )}
         {searchResults.length > 0 && <ResultPanel title="搜索结果" items={searchResults} />}
         <TaskCenter tasks={tasks} />
       </section>
@@ -1799,6 +2270,10 @@ function ToolDetail({ tool, files, setFiles, pageCards, setPageCards, tools, onS
 
   const togglePageSelected = (id) => {
     setPageCards((current) => current.map((page) => (page.id === id ? { ...page, selected: !page.selected } : page)))
+  }
+
+  const setAllPagesSelected = (selected) => {
+    setPageCards((current) => current.map((page) => ({ ...page, selected, removed: selected ? false : page.removed })))
   }
 
   const movePageCard = (id, direction) => {
@@ -1965,7 +2440,15 @@ function ToolDetail({ tool, files, setFiles, pageCards, setPageCards, tools, onS
 
       {['拆分 PDF', '页面旋转', '页面排序', '页面删除'].includes(tool.name) && pageCards.length > 0 && (
         <section className="page-card-panel">
-          <h3>{tool.name === '页面排序' ? '重新排列 PDF 页面' : tool.name === '页面删除' ? '选择要删除的页面' : '选择页面'}</h3>
+          <div className="page-card-head">
+            <h3>{tool.name === '页面排序' ? '重新排列 PDF 页面' : tool.name === '页面删除' ? '选择要删除的页面' : '选择页面'}</h3>
+            {(tool.name === '拆分 PDF' || tool.name === '页面旋转') && (
+              <div>
+                <button type="button" onClick={() => setAllPagesSelected(true)}>全选</button>
+                <button type="button" onClick={() => setAllPagesSelected(false)}>取消全选</button>
+              </div>
+            )}
+          </div>
           <div className="page-card-grid">
             {pageCards.map((page) => (
               <article
@@ -2001,7 +2484,7 @@ function ToolDetail({ tool, files, setFiles, pageCards, setPageCards, tools, onS
               </article>
             ))}
           </div>
-          <p>{tool.name === '页面排序' ? '提示：可以拖动页卡改变顺序，也可以用上移和下移微调。' : tool.name === '页面删除' ? '提示：点删除标记要移除的页面，生成时会保留未标记页面。' : '提示：未选择页面时，系统会使用上方页码范围设置。'}</p>
+          <p>{tool.name === '页面排序' ? '提示：可以拖动页卡改变顺序，也可以用上移和下移微调。' : tool.name === '页面删除' ? '提示：点删除标记要移除的页面，生成时会保留未标记页面。' : '提示：选择页面后只处理选中的页；未选择页面时，系统会使用上方处理设置。'}</p>
         </section>
       )}
 
@@ -2179,11 +2662,11 @@ function ToolOptions({ toolName, fileCount, options, setOptions }) {
         <h3>处理设置</h3>
         <label>
           <input type="radio" name="split-mode" checked={options.mode === 'single'} onChange={() => setOptions((current) => ({ ...current, mode: 'single' }))} />
-          一页一个文件并打包下载
+          每页拆成单独 PDF，并打包成 ZIP 下载
         </label>
         <label>
           <input type="radio" name="split-mode" checked={options.mode === 'range'} onChange={() => setOptions((current) => ({ ...current, mode: 'range' }))} />
-          指定页码范围
+          把指定页码合成一个新 PDF
         </label>
         {options.mode === 'range' && (
           <div className="range-controls">
@@ -2393,17 +2876,6 @@ function PaperWorkspace({ documents, leftTab, setLeftTab, rightTab, setRightTab,
     }
   }, [])
 
-  const addAnnotation = () => {
-    setPaperState((current) => ({
-      ...current,
-      comments: [`第 ${current.currentPage} 页标注`, ...current.comments],
-      bookmarks: current.bookmarks.includes(`第 ${current.currentPage} 页`)
-        ? current.bookmarks
-        : [`第 ${current.currentPage} 页`, ...current.bookmarks],
-    }))
-    addTask('添加批注', '成功')
-  }
-
   return (
     <section
       className={`paper-layout ${leftCollapsed ? 'left-collapsed' : ''} ${rightCollapsed ? 'right-collapsed' : ''}`}
@@ -2436,22 +2908,8 @@ function PaperWorkspace({ documents, leftTab, setLeftTab, rightTab, setRightTab,
       />
 
       <section className="pdf-stage">
-        <div className="reader-toolbar">
-          <div>
-            <BookMarked size={17} />
-            <span>{activeDocument?.title || '未选择文档'}</span>
-          </div>
-          <div className="toolbar-actions">
-            <button type="button">{activeDocument?.source === 'local' ? '100%' : '82%'}</button>
-            <button type="button">第 {paperState.currentPage} 页</button>
-            <button type="button" onClick={addAnnotation}>
-              <Edit3 size={15} />
-              标注
-            </button>
-          </div>
-        </div>
         <div className="pdf-scroll-area">
-          <PdfPreview activeDocument={activeDocument} readerResetKey={readerResetKey} paperState={paperState} setPaperState={setPaperState} />
+          <PdfPreview activeDocument={activeDocument} readerResetKey={readerResetKey} paperState={paperState} setPaperState={setPaperState} setRightTab={setRightTab} />
         </div>
       </section>
       <div
@@ -2490,11 +2948,11 @@ function PaperWorkspace({ documents, leftTab, setLeftTab, rightTab, setRightTab,
   )
 }
 
-function PdfPreview({ activeDocument, readerResetKey, paperState, setPaperState }) {
-  return <ContinuousPdfPreview activeDocument={activeDocument} readerResetKey={readerResetKey} paperState={paperState} setPaperState={setPaperState} />
+function PdfPreview({ activeDocument, readerResetKey, paperState, setPaperState, setRightTab }) {
+  return <ContinuousPdfPreview activeDocument={activeDocument} readerResetKey={readerResetKey} paperState={paperState} setPaperState={setPaperState} setRightTab={setRightTab} />
 }
 
-function ContinuousPdfPreview({ activeDocument, readerResetKey, paperState, setPaperState }) {
+function ContinuousPdfPreview({ activeDocument, readerResetKey, paperState, setPaperState, setRightTab }) {
   const scrollRef = useRef(null)
   const pageRefs = useRef(new Map())
   const loadingTaskRef = useRef(null)
@@ -2553,7 +3011,11 @@ function ContinuousPdfPreview({ activeDocument, readerResetKey, paperState, setP
     if (targetY && scrollRef.current) {
       const pageBox = target.querySelector('.pdf-js-page')
       const pageHeight = pageBox?.getBoundingClientRect().height || target.getBoundingClientRect().height
-      const rawOffset = Math.max(0, pageHeight - targetY * scale - 28)
+      const pageData = activeDocument?.paperData?.pageTexts?.find((page) => page.page === targetPage)
+      const pageMaxY = Math.max(...(pageData?.lineObjects || []).map((line) => line.y).filter(Boolean), targetY)
+      const pageMinY = Math.min(...(pageData?.lineObjects || []).map((line) => line.y).filter(Boolean), 0)
+      const normalizedY = pageMaxY > pageMinY ? (pageMaxY - targetY) / (pageMaxY - pageMinY) : 0
+      const rawOffset = Math.max(0, normalizedY * pageHeight - 36)
       scrollRef.current.scrollTo({
         top: target.offsetTop + rawOffset,
         behavior: 'auto',
@@ -2569,7 +3031,7 @@ function ContinuousPdfPreview({ activeDocument, readerResetKey, paperState, setP
           : current
       ))
     }, 250)
-  }, [pageTotal, paperState.navigationTarget, scale, setPaperState])
+  }, [activeDocument?.paperData?.pageTexts, pageTotal, paperState.navigationTarget, setPaperState])
 
   const updateVisiblePage = () => {
     if (!scrollRef.current || scrollTargetRef.current) return
@@ -2642,6 +3104,19 @@ function ContinuousPdfPreview({ activeDocument, readerResetKey, paperState, setP
     }))
   }
 
+  const chooseParagraph = (paragraph) => {
+    window.getSelection()?.removeAllRanges()
+    setPaperState((current) => ({
+      ...current,
+      currentPage: paragraph.page,
+      selectedText: '',
+      selectionPage: null,
+      activeParagraph: paragraph,
+      translationMode: 'paragraph',
+    }))
+    setRightTab?.('translate')
+  }
+
   if (!activeDocument?.bytes) {
     return (
       <article className="pdf-page">
@@ -2674,6 +3149,8 @@ function ContinuousPdfPreview({ activeDocument, readerResetKey, paperState, setP
             pdfDocument={pdfDocument}
             pageNumber={pageNumber}
             scale={scale}
+            bookmarks={paperState.bookmarks || []}
+            activeParagraph={paperState.activeParagraph}
             setPaperState={setPaperState}
             setPageRef={(element) => {
               if (element) pageRefs.current.set(pageNumber, element)
@@ -2681,6 +3158,7 @@ function ContinuousPdfPreview({ activeDocument, readerResetKey, paperState, setP
             }}
             onMouseDown={clearSelection}
             onSelection={(textLayerElement) => captureSelection(pageNumber, textLayerElement)}
+            onParagraphClick={chooseParagraph}
           />
         ))}
       </div>
@@ -2688,12 +3166,17 @@ function ContinuousPdfPreview({ activeDocument, readerResetKey, paperState, setP
   )
 }
 
-function PdfPageView({ pdfDocument, pageNumber, scale, setPaperState, setPageRef, onMouseDown, onSelection }) {
+function PdfPageView({ pdfDocument, pageNumber, scale, bookmarks, activeParagraph, setPaperState, setPageRef, onMouseDown, onSelection, onParagraphClick }) {
   const canvasRef = useRef(null)
   const textLayerRef = useRef(null)
   const renderTaskRef = useRef(null)
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 })
   const [status, setStatus] = useState('正在渲染')
+  const [paragraphRegions, setParagraphRegions] = useState([])
+  const pageBookmarks = (bookmarks || []).filter((item) => {
+    const bookmark = typeof item === 'string' ? null : item
+    return bookmark?.page === pageNumber
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -2728,8 +3211,17 @@ function PdfPageView({ pdfDocument, pageNumber, scale, setPaperState, setPageRef
         })
         await withTimeout(renderTaskRef.current.promise, 15000, '页面渲染超时')
         if (cancelled) return
-        const textContent = await page.getTextContent()
+        const textContent = await page.getTextContent({
+          disableCombineTextItems: true,
+          includeMarkedContent: true,
+        })
         if (cancelled || !textLayerRef.current) return
+        const nextParagraphRegions = buildParagraphRegions(textContent, viewport).map((item) => ({
+          ...item,
+          page: pageNumber,
+          key: `${pageNumber}-${hashText(item.text)}-${Math.round(item.top)}-${Math.round(item.left)}`,
+        }))
+        setParagraphRegions(nextParagraphRegions)
         const pageText = normalizeLine(textContent.items.map((item) => item.str).join(' '))
         setPaperState((current) => (
           current.currentPage === pageNumber
@@ -2765,8 +3257,37 @@ function PdfPageView({ pdfDocument, pageNumber, scale, setPaperState, setPageRef
     >
       <div className="pdf-js-page" style={{ width: pageSize.width || undefined, height: pageSize.height || undefined }}>
         {status && <span className="pdf-page-status">{status}</span>}
+        {pageBookmarks.length > 0 && (
+          <span
+            className="pdf-bookmark-marker"
+            title={pageBookmarks.map((item) => item.title).join('，')}
+            style={{ '--bookmark-color': pageBookmarks[0]?.color || '#35568a' }}
+          >
+            书签
+          </span>
+        )}
         <canvas ref={canvasRef} className="pdf-page-canvas" />
         <div ref={textLayerRef} className="textLayer reader-text-layer" />
+        <div className="paragraph-hit-layer" aria-label="段落热区">
+          {paragraphRegions.map((region) => (
+            <button
+              type="button"
+              key={region.key}
+              className={`paragraph-region ${activeParagraph?.key === region.key ? 'active' : ''}`}
+              style={{
+                left: region.left,
+                top: region.top,
+                width: region.width,
+                height: region.height,
+              }}
+              title={region.text}
+              onClick={(event) => {
+                event.stopPropagation()
+                onParagraphClick(region)
+              }}
+            />
+          ))}
+        </div>
       </div>
     </section>
   )
@@ -2784,13 +3305,125 @@ function SmartPanel({ tab, content, addTask, activeDocument, aiOutputs, setAiOut
   const pendingText = isLocal
     ? parsedText
     : content.body
-  const [savedRecommendations, setSavedRecommendations] = useState([])
   const [savedTerms, setSavedTerms] = useState([])
   const [questionList, setQuestionList] = useState(questions)
   const [savedCards, setSavedCards] = useState([])
+  const [aiPending, setAiPending] = useState('')
+  const [wordTranslations, setWordTranslations] = useState({})
+
+  const requestWordTranslation = async (word, translatedText = '') => {
+    const cleanWord = String(word || '').replace(/[^\w-]/g, '')
+    if (!cleanWord || cleanWord.length < 2) return
+    const key = `${cleanWord.toLowerCase()}-${hashText(paperState.activeParagraph?.text || translatedText || '')}`
+    if (wordTranslations[key]?.status === 'done' || wordTranslations[key]?.status === 'loading') return
+    const localTip = inferWordTip(cleanWord, translatedText)
+    if (!localTip.includes('需要结合当前段落确认')) {
+      setWordTranslations((current) => ({ ...current, [key]: { status: 'done', text: localTip } }))
+      return
+    }
+    setWordTranslations((current) => ({ ...current, [key]: { status: 'loading', text: `${cleanWord} 翻译中` } }))
+    try {
+      const result = await requestAi({
+        task: 'word',
+        text: cleanWord,
+        title: paperData?.title || activeDocument?.title,
+        context: `只翻译这个英文词，输出格式为 词语 中文含义。当前段落 ${paperState.activeParagraph?.text || translatedText}`,
+      })
+      setWordTranslations((current) => ({
+        ...current,
+        [key]: { status: 'done', text: normalizeLine(result).slice(0, 80) || localTip },
+      }))
+    } catch {
+      setWordTranslations((current) => ({ ...current, [key]: { status: 'done', text: localTip } }))
+    }
+  }
+
+  const renderLookupText = (text, translatedText = '') => String(text || '').split(/(\s+)/).map((part, index) => {
+    if (!/\w/.test(part)) return part
+    const cleanWord = part.replace(/[^\w-]/g, '')
+    const tipKey = `${cleanWord.toLowerCase()}-${hashText(paperState.activeParagraph?.text || translatedText || '')}`
+    const tip = wordTranslations[tipKey]?.text || inferWordTip(part, translatedText)
+    return (
+      <span
+        tabIndex={0}
+        className="word-tooltip"
+        data-tip={tip}
+        key={`${part}-${index}`}
+        onMouseEnter={() => requestWordTranslation(part, translatedText)}
+        onFocus={() => requestWordTranslation(part, translatedText)}
+      >
+        {part}
+      </span>
+    )
+  })
+  const renderTranslationParagraphs = (text, fallbackText) => {
+    const paragraphs = formatTranslationText(text || fallbackText)
+    const fullTranslation = paragraphs.join(' ')
+    return paragraphs.length > 0 ? paragraphs.map((paragraph, index) => (
+      <p className="clickable-translation" key={`${paragraph.slice(0, 18)}-${index}`}>
+        {renderLookupText(paragraph, fullTranslation)}
+      </p>
+    )) : (
+      <p className="clickable-translation">{renderLookupText(fallbackText)}</p>
+    )
+  }
+
+  const runAiTask = async ({ task, text, title, context, onSuccess, fallback }) => {
+    setAiPending(task)
+    try {
+      const result = await requestAi({ task, text, title, context })
+      onSuccess(result)
+      addTask(task === 'translate' ? 'AI 翻译完成' : task === 'summary' ? 'AI 总结完成' : 'AI 阅读报告完成', '成功')
+    } catch (error) {
+      if (fallback) onSuccess(fallback())
+      addTask(error instanceof Error ? error.message : 'AI 请求失败', '失败')
+    } finally {
+      setAiPending('')
+    }
+  }
+
+  const activeParagraphText = paperState.activeParagraph?.text || ''
+  const activeParagraphOutputKey = `translate-${activeDocument?.id || 'demo'}-paragraph-${paperState.activeParagraph?.key || hashText(activeParagraphText)}`
+  useEffect(() => {
+    if (tab !== 'translate' || paperState.translationMode !== 'paragraph' || !activeParagraphText || aiOutputs[activeParagraphOutputKey] || aiPending === 'translate') return
+    runAiTask({
+      task: 'translate',
+      text: activeParagraphText,
+      title: paperData?.title || activeDocument?.title,
+      context: `自动翻译第 ${paperState.activeParagraph?.page || paperState.currentPage} 页段落`,
+      fallback: () => makeLocalTranslation(activeParagraphText, paperData?.title || activeDocument?.title),
+      onSuccess: (translated) => setAiOutputs((current) => ({
+        ...current,
+        [activeParagraphOutputKey]: translated,
+      })),
+    })
+  }, [tab, paperState.translationMode, activeParagraphText, activeParagraphOutputKey])
+
+  const figureInferredItems = inferFigureFormulaItems(paperData, paperState.currentPage)
+  const figureOutputKey = `figure-${activeDocument?.id || 'demo'}-${paperState.currentPage}`
+  const aiFigureText = aiOutputs[figureOutputKey]
+  useEffect(() => {
+    if (tab !== 'figures' || figureInferredItems.length === 0 || aiFigureText || aiPending === 'figure') return
+    runAiTask({
+      task: 'figure',
+      text: figureInferredItems.map((item, index) => [
+        `条目 ${index + 1}`,
+        `类型 ${item.type}`,
+        `标题 ${item.title}`,
+        `原文 ${item.source || item.meta}`,
+      ].join('\n')).join('\n\n'),
+      title: paperData?.title || activeDocument?.title,
+      context: `当前页 ${paperState.currentPage}，请解释这些图表公式和正文关系`,
+      fallback: () => figureInferredItems.map((item) => `${item.title}\n图表含义 ${translateFigureAnalysis(item.source || item.meta)}\n关键结论 该条目需要结合当前页正文和图表位置判断。\n与正文关系 它服务于当前页的方法说明或实验论证。`).join('\n\n'),
+      onSuccess: (result) => setAiOutputs((current) => ({
+        ...current,
+        [figureOutputKey]: result,
+      })),
+    })
+  }, [tab, paperState.currentPage, figureOutputKey, figureInferredItems.length, aiFigureText])
 
   if (tab === 'translate') {
-    const translationMode = paperState.translationMode || 'section'
+    const translationMode = paperState.translationMode || (paperState.activeParagraph ? 'paragraph' : 'section')
     const currentPageText = paperState.currentPageTextPage === paperState.currentPage ? paperState.currentPageText : ''
     const wholePaperText = paperData
       ? [
@@ -2800,13 +3433,16 @@ function SmartPanel({ tab, content, addTask, activeDocument, aiOutputs, setAiOut
       ].filter(Boolean).join('\n')
       : currentPageText || content.body
     const originalTextMap = {
+      paragraph: paperState.activeParagraph?.text || '',
       section: currentSection?.text || currentPageText || paperData?.abstract || '',
       selection: paperState.selectedText || '',
       full: wholePaperText,
     }
     const sourceText = originalTextMap[translationMode] || originalTextMap.section || content.body
-    const outputKey = `translate-${activeDocument?.id || 'demo'}-${translationMode}-${translationMode === 'selection' ? paperState.selectionPage || paperState.currentPage : currentSection?.title || 'full'}`
+    const outputKey = `translate-${activeDocument?.id || 'demo'}-${translationMode}-${translationMode === 'paragraph' ? paperState.activeParagraph?.key || hashText(sourceText) : translationMode === 'selection' ? paperState.selectionPage || paperState.currentPage : currentSection?.title || 'full'}`
     const generated = aiOutputs[outputKey]
+    const localGenerated = makeLocalTranslation(sourceText || content.body, paperData?.title || activeDocument?.title)
+    const displayedTranslation = generated || (translationMode === 'paragraph' && sourceText ? localGenerated : '')
     const switchTranslationMode = (nextMode) => {
       setPaperState((current) => ({ ...current, translationMode: nextMode }))
     }
@@ -2814,35 +3450,41 @@ function SmartPanel({ tab, content, addTask, activeDocument, aiOutputs, setAiOut
       <>
         <p>{pendingText}</p>
         <div className="segmented">
-          <button className={translationMode === 'section' ? 'active' : ''} type="button" onClick={() => switchTranslationMode('section')}>当前章节</button>
-          <button className={translationMode === 'selection' ? 'active' : ''} type="button" disabled={!paperState.selectedText} onClick={() => switchTranslationMode('selection')}>
-            {paperState.selectedText ? `选中文本 ${paperState.selectionPage || paperState.currentPage} 页` : '选中文本'}
+          <button className={translationMode === 'paragraph' ? 'active' : ''} type="button" disabled={!paperState.activeParagraph} onClick={() => switchTranslationMode('paragraph')}>
+            {paperState.activeParagraph ? `当前段落 ${paperState.activeParagraph.page} 页` : '当前段落'}
           </button>
+          <button className={translationMode === 'section' ? 'active' : ''} type="button" onClick={() => switchTranslationMode('section')}>当前章节</button>
           <button className={translationMode === 'full' ? 'active' : ''} type="button" onClick={() => switchTranslationMode('full')}>整篇论文</button>
         </div>
         <div className="translation-view">
           <div>
             <strong>原版</strong>
-            <p>{cleanPdfExtractedText(sourceText).slice(0, 1200) || (translationMode === 'selection' ? '请先在左侧 PDF 页面中选择文字。' : '正在等待 PDF 文本解析结果。')}</p>
+            {renderTranslationParagraphs(cleanPdfExtractedText(sourceText).slice(0, 1200), translationMode === 'paragraph' ? '请先点击左侧 PDF 中的一个段落。' : '正在等待 PDF 文本解析结果。')}
           </div>
           <div>
             <strong>译文</strong>
-            <p>{generated || (isLocal ? '点击生成后，当前范围的本地规则译文会显示在这里。' : '文档会先被解析为结构化单元，随后助手生成与当前范围相关的翻译内容。')}</p>
+            {renderTranslationParagraphs(displayedTranslation, isLocal ? '点击左侧段落后，译文会自动显示在这里。' : '文档会先被解析为结构化单元，随后助手生成与当前范围相关的翻译内容。')}
           </div>
         </div>
         <button
           className="wide-action primary"
           type="button"
+          disabled={aiPending === 'translate'}
           onClick={() => {
-            addTask(isLocal ? '生成当前译文' : '导出当前译文', '成功')
-            const translated = makeLocalTranslation(sourceText || content.body, paperData?.title || activeDocument?.title)
-            setAiOutputs((current) => ({
-              ...current,
-              [outputKey]: translated,
-            }))
+            runAiTask({
+              task: 'translate',
+              text: sourceText || content.body,
+              title: paperData?.title || activeDocument?.title,
+              context: `翻译范围 ${translationMode}`,
+              fallback: () => makeLocalTranslation(sourceText || content.body, paperData?.title || activeDocument?.title),
+              onSuccess: (translated) => setAiOutputs((current) => ({
+                ...current,
+                [outputKey]: translated,
+              })),
+            })
           }}
         >
-          {isLocal ? '生成当前译文' : '导出当前译文'}
+          {aiPending === 'translate' ? 'AI 翻译中' : translationMode === 'paragraph' ? '重新生成段落译文' : isLocal ? '生成当前译文' : '导出当前译文'}
         </button>
       </>
     )
@@ -2852,67 +3494,65 @@ function SmartPanel({ tab, content, addTask, activeDocument, aiOutputs, setAiOut
     const outputKey = `summary-${activeDocument?.id || 'demo'}-${currentSection?.title || paperState.currentPage}`
     const generated = aiOutputs[outputKey] || aiOutputs.summary
     const dynamicSummary = paperData ? makeLocalSummary(currentSection, paperData) : null
+    const fallbackSections = dynamicSummary
+      ? [
+        { label: '主要内容', text: dynamicSummary.main },
+        { label: '关键概念', text: dynamicSummary.concepts },
+        { label: '方法', text: dynamicSummary.method },
+        { label: '实验结果', text: dynamicSummary.experiment },
+        { label: '结论', text: dynamicSummary.conclusion },
+      ]
+      : summaryBlocks
     return (
       <>
         <p>{pendingText}</p>
         <div className="summary-stack">
-          {generated && (
+          {generated ? (
             <section>
-              <h4>生成结果</h4>
+              <h4>AI 章节总结</h4>
               <p>{generated}</p>
             </section>
-          )}
-          {dynamicSummary ? (
-            <>
-              <section>
-                <h4>主要内容</h4>
-                <p>{dynamicSummary.main}</p>
-              </section>
-              <section>
-                <h4>关键概念</h4>
-                <p>{dynamicSummary.concepts}</p>
-              </section>
-              <section>
-                <h4>方法</h4>
-                <p>{dynamicSummary.method}</p>
-              </section>
-              <section>
-                <h4>实验结果</h4>
-                <p>{dynamicSummary.experiment}</p>
-              </section>
-              <section>
-                <h4>结论</h4>
-                <p>{dynamicSummary.conclusion}</p>
-              </section>
-            </>
-          ) : summaryBlocks.map((block) => (
-            <section key={block.label}>
-              <h4>{block.label}</h4>
-              <p>{block.text}</p>
+          ) : (
+            <section>
+              <h4>本地预览摘要</h4>
+              <p>点击下方按钮后会调用 AI 生成正式章节总结。当前内容是根据 PDF 文本规则提取的预览结果。</p>
             </section>
-          ))}
+          )}
+          {!generated && fallbackSections.map((block) => (
+              <section key={block.label}>
+                <h4>{block.label}</h4>
+                <p>{block.text}</p>
+              </section>
+            ))}
         </div>
         <button
           className="wide-action primary"
           type="button"
+          disabled={aiPending === 'summary'}
           onClick={() => {
-            addTask('章节总结', '成功')
             const nextSummary = makeLocalSummary(currentSection, paperData)
-            const summaryText = [
+            const fallbackSummary = () => [
               `主要内容 ${nextSummary.main}`,
               `关键概念 ${nextSummary.concepts}`,
               `方法 ${nextSummary.method}`,
               `实验结果 ${nextSummary.experiment}`,
               `结论 ${nextSummary.conclusion}`,
             ].join('\n')
-            setAiOutputs((current) => ({
-              ...current,
-              [outputKey]: summaryText,
-              summary: summaryText,
-            }))
+            runAiTask({
+              task: 'summary',
+              text: currentSection?.text || paperData?.abstract || content.body,
+              title: paperData?.title || activeDocument?.title,
+              context: `当前章节 ${currentSection?.title || paperState.currentPage}`,
+              fallback: fallbackSummary,
+              onSuccess: (summaryText) => setAiOutputs((current) => ({
+                ...current,
+                [outputKey]: summaryText,
+                summary: summaryText,
+              })),
+            })
           }}
         >
-          {isLocal ? '生成章节总结' : '重新生成总结'}
+          {aiPending === 'summary' ? 'AI 总结中' : isLocal ? '生成章节总结' : '重新生成总结'}
         </button>
       </>
     )
@@ -2975,25 +3615,45 @@ function SmartPanel({ tab, content, addTask, activeDocument, aiOutputs, setAiOut
   }
 
   if (tab === 'recommend') {
-    const recommendationItems = paperData ? makeRecommendations(paperData) : recommendations
+    const aiRecommendation = aiOutputs[`recommend-${activeDocument?.id || 'demo'}`]
     return (
       <>
-        <p>{pendingText}</p>
-        <div className="recommend-list">
-          {recommendationItems.map((item) => (
-            <button type="button" key={item.title} onClick={() => setSavedRecommendations((current) => current.includes(item.title) ? current : [...current, item.title])}>
-              <span>
-                <strong>{item.title}</strong>
-                <small>{item.type}</small>
-              </span>
-              <em>{savedRecommendations.includes(item.title) ? '已加入' : item.score}</em>
-            </button>
-          ))}
-        </div>
-        <button className="wide-action" type="button" onClick={() => {
-          setSavedRecommendations(recommendationItems.map((item) => item.title))
-          addTask('加入待读列表', '成功')
-        }}>加入待读列表</button>
+        <p>AI 会根据当前论文题目、摘要和参考文献，生成可继续检索的研究方向、关键词和代码仓库方向。</p>
+        {aiRecommendation ? (
+          <section className="ai-output-card">
+            <h4>AI 推荐结果</h4>
+            <p>{aiRecommendation}</p>
+          </section>
+        ) : (
+          <section className="ai-output-card muted">
+            <h4>等待生成</h4>
+            <p>点击下方按钮后，这里会显示结构化推荐结果。不再展示本地关键词拼接出来的临时条目。</p>
+          </section>
+        )}
+        <button
+          className="wide-action primary"
+          type="button"
+          disabled={aiPending === 'recommend'}
+          onClick={() => {
+            runAiTask({
+              task: 'recommend',
+              text: [
+                paperData?.title,
+                paperData?.abstract,
+                ...(paperData?.references || []).map((item) => item.title),
+              ].filter(Boolean).join('\n'),
+              title: paperData?.title || activeDocument?.title,
+              context: '生成相关论文、关键词和代码仓库方向',
+              fallback: () => '当前 AI 接口不可用。建议检索方向包括目标检测、小模型鲁棒性、ImageNet 预训练、跨域检测和边缘端部署。',
+              onSuccess: (result) => setAiOutputs((current) => ({
+                ...current,
+                [`recommend-${activeDocument?.id || 'demo'}`]: result,
+              })),
+            })
+          }}
+        >
+          {aiPending === 'recommend' ? 'AI 推荐生成中' : '生成 AI 推荐'}
+        </button>
       </>
     )
   }
@@ -3002,7 +3662,7 @@ function SmartPanel({ tab, content, addTask, activeDocument, aiOutputs, setAiOut
     const termItems = paperData?.terms?.length ? paperData.terms : terms
     return (
       <>
-        <p>{pendingText}</p>
+        <p>下面只保留和当前论文任务、方法、数据集、指标相关的核心概念。</p>
         <div className="term-list">
           {termItems.map((item) => (
             <section key={item.term}>
@@ -3066,35 +3726,78 @@ function SmartPanel({ tab, content, addTask, activeDocument, aiOutputs, setAiOut
   }
 
   if (tab === 'figures') {
+    const inferredItems = figureInferredItems
+    const savedItems = (paperState.figures || []).filter((item) => item.saved || item.page === paperState.currentPage)
+    const displayItems = [...inferredItems, ...savedItems].slice(0, 8)
     return (
       <>
-        <p>{content.body}</p>
+        <p>系统会根据当前页文字线索判断图、表、公式和实验指标。识别结果可保存为当前页笔记。</p>
+        {aiFigureText && (
+          <section className="ai-output-card figure-ai-summary">
+            <h4>AI 图表公式解释</h4>
+            {formatTranslationText(aiFigureText).map((line, index) => (
+              <p key={`${line.slice(0, 18)}-${index}`}>{line}</p>
+            ))}
+          </section>
+        )}
         <div className="feature-list">
-          {paperState.figures.map((item) => (
-            <button type="button" className="feature-row" key={item.title}>
+          {displayItems.length > 0 ? displayItems.map((item) => (
+            <article className="figure-note-card" key={item.title}>
               <em>{item.type}</em>
               <span>
                 <strong>{item.title}</strong>
                 <small>{item.meta}</small>
               </span>
-            </button>
-          ))}
+              {item.analysis && (
+                <p>
+                  <b>中文分析</b>
+                  {item.analysis}
+                </p>
+              )}
+              {item.source && (
+                <p className="source">
+                  <b>原文依据</b>
+                  {cleanPdfExtractedText(item.source).slice(0, 260)}
+                </p>
+              )}
+            </article>
+          )) : (
+            <div className="empty-card">
+              <strong>当前页暂未识别到明确图表公式</strong>
+              <p>可以滚动到包含 Figure、Table、公式编号或实验指标的页面后再保存。</p>
+            </div>
+          )}
         </div>
+        <button
+          className="wide-action primary"
+          type="button"
+          disabled={inferredItems.length === 0 || aiPending === 'figure'}
+          onClick={() => {
+            setAiOutputs((current) => {
+              const next = { ...current }
+              delete next[figureOutputKey]
+              return next
+            })
+          }}
+        >
+          {aiPending === 'figure' ? 'AI 解释生成中' : '重新生成图表解释'}
+        </button>
         <button
           className="wide-action"
           type="button"
+          disabled={inferredItems.length === 0}
           onClick={() => {
             setPaperState((current) => ({
               ...current,
               figures: [
-                { type: '图表', title: `第 ${current.currentPage} 页新图表笔记`, meta: `第 ${current.currentPage} 页 · 已保存` },
-                ...current.figures,
+                ...inferredItems.map((item) => ({ ...item, page: current.currentPage, saved: true, meta: `${item.meta} · 已保存` })),
+                ...(current.figures || []).filter((item) => item.page !== current.currentPage),
               ],
             }))
             addTask('保存图表公式笔记', '成功')
           }}
         >
-          保存当前页图表公式
+          保存当前页识别结果
         </button>
       </>
     )
@@ -3152,15 +3855,22 @@ function SmartPanel({ tab, content, addTask, activeDocument, aiOutputs, setAiOut
         <button
           className="wide-action primary"
           type="button"
+          disabled={aiPending === 'report'}
           onClick={() => {
-            addTask('生成阅读报告', '成功')
-            setAiOutputs((current) => ({
-              ...current,
-              report: makeReadingReport(paperData, paperState, current),
-            }))
+            runAiTask({
+              task: 'report',
+              text: makeReadingReport(paperData, paperState, aiOutputs),
+              title: paperData?.title || activeDocument?.title,
+              context: paperState.notes,
+              fallback: () => makeReadingReport(paperData, paperState, aiOutputs),
+              onSuccess: (report) => setAiOutputs((current) => ({
+                ...current,
+                report,
+              })),
+            })
           }}
         >
-          生成阅读报告
+          {aiPending === 'report' ? 'AI 报告生成中' : '生成阅读报告'}
         </button>
       </>
     )
@@ -3245,30 +3955,56 @@ function SmartPanel({ tab, content, addTask, activeDocument, aiOutputs, setAiOut
       )
     }
 
-    const referenceItems = paperData?.references?.length ? paperData.references : paperState.references
+    if (tab === 'references') {
+      const referenceItems = paperData?.references || []
+      return (
+        <>
+          <p>这里显示 References 或 Bibliography 中提取出的参考文献。带 DOI、URL、arXiv 的条目会直接打开原始网页，其余条目会打开论文检索页。</p>
+          <div className="feature-list">
+            {referenceItems.length > 0 ? referenceItems.map((item) => {
+              const link = item.link || makeReferenceLink(item.title)
+              return (
+                <a
+                  className="feature-row reference-link-row"
+                  key={item.title}
+                  href={link.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={link.href}
+                  onClick={() => addTask('打开参考文献网页', '成功')}
+                >
+                  <em>{link.label.includes('检索') ? '检索' : '链接'}</em>
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>{link.label} · 点击打开网页</small>
+                  </span>
+                </a>
+              )
+            }) : (
+              <div className="empty-card">
+                <strong>未识别到参考文献章节</strong>
+                <p>当前 PDF 暂未提取到 References 或 Bibliography 章节。请滚动到参考文献页后重新导入，或确认 PDF 文本层是否完整。</p>
+              </div>
+            )}
+          </div>
+        </>
+      )
+    }
+
     return (
       <>
         <p>{content.body}</p>
         <div className="feature-list">
-          {(tab === 'references' ? referenceItems.map((item) => item.title) : content.items).map((item) => (
+          {content.items.map((item) => (
             <button
               type="button"
               className="feature-row"
               key={item}
-              onClick={() => {
-                if (tab === 'references') {
-                  setPaperState((current) => ({
-                    ...current,
-                    references: referenceItems.map((ref) => (ref.title === item ? { ...ref, saved: true } : ref)),
-                  }))
-                  addTask('加入待读引用', '成功')
-                }
-              }}
             >
-              <em>{tab === 'references' ? '引用' : tab === 'cards' ? '卡片' : tab === 'compare' ? '对比' : '知识'}</em>
+              <em>{tab === 'cards' ? '卡片' : tab === 'compare' ? '对比' : '知识'}</em>
               <span>
                 <strong>{item}</strong>
-                <small>{tab === 'references' && referenceItems.find((ref) => ref.title === item)?.saved ? '已加入待读列表' : '点击查看详情并加入阅读记录'}</small>
+                <small>点击查看详情并加入阅读记录</small>
               </span>
             </button>
           ))}
@@ -3302,6 +4038,82 @@ function LeftPanel({ active, activeDocument, paperState, setPaperState, setRight
   const isLocal = activeDocument?.source === 'local'
   const paperData = activeDocument?.paperData
   const documentOutline = isLocal ? (paperData?.outline || []) : outline
+  const [chatMessages, setChatMessages] = useState([
+    { role: 'assistant', text: '你可以问当前论文的摘要、方法、实验、术语或某一页内容。' },
+  ])
+  const [chatInput, setChatInput] = useState('')
+  const [chatPending, setChatPending] = useState(false)
+
+  const sendChatMessage = async () => {
+    const question = chatInput.trim()
+    if (!question || chatPending) return
+    const pageText = paperData?.pageTexts?.find((page) => page.page === paperState.currentPage)?.text || ''
+    const activeParagraphText = paperState.activeParagraph?.text || ''
+    const context = [
+      `当前页 ${paperState.currentPage || 1}`,
+      activeParagraphText ? `当前选中段落 ${activeParagraphText}` : '',
+      pageText ? `当前页文本 ${normalizeLine(pageText).slice(0, 2500)}` : '',
+    ].filter(Boolean).join('\n')
+    setChatInput('')
+    setChatMessages((current) => [...current, { role: 'user', text: question }])
+    setChatPending(true)
+    try {
+      const answer = await requestAi({
+        task: 'chat',
+        text: question,
+        title: paperData?.title || activeDocument?.title,
+        context,
+      })
+      setChatMessages((current) => [...current, { role: 'assistant', text: answer || '没有生成有效回答。' }])
+    } catch (error) {
+      setChatMessages((current) => [
+        ...current,
+        { role: 'assistant', text: error instanceof Error ? `AI 请求失败 ${error.message}` : 'AI 请求失败' },
+      ])
+    } finally {
+      setChatPending(false)
+    }
+  }
+
+  if (active === 'chat') {
+    return (
+      <div className="left-panel ai-chat-panel">
+        <h3>AI 对话</h3>
+        <div className="ai-chat-messages">
+          {chatMessages.map((item, index) => (
+            <article className={`ai-chat-message ${item.role}`} key={`${item.role}-${index}`}>
+              <span>{item.role === 'user' ? '我' : 'AI'}</span>
+              <p>{item.text}</p>
+            </article>
+          ))}
+          {chatPending && (
+            <article className="ai-chat-message assistant">
+              <span>AI</span>
+              <p>正在根据当前论文生成回答...</p>
+            </article>
+          )}
+        </div>
+        <div className="ai-chat-input">
+          <textarea
+            value={chatInput}
+            placeholder="问当前论文内容"
+            rows={4}
+            onChange={(event) => setChatInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                sendChatMessage()
+              }
+            }}
+          />
+          <button type="button" onClick={sendChatMessage} disabled={!chatInput.trim() || chatPending}>
+            发送
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (active === 'outline') {
     if (isLocal) {
       return (
@@ -3365,25 +4177,120 @@ function LeftPanel({ active, activeDocument, paperState, setPaperState, setRight
   }
 
   if (active === 'bookmark') {
+    const bookmarkColors = ['#35568a', '#b65b5b', '#4d7d5b', '#8a6a35', '#6d5aa8']
+    const bookmarks = (paperState.bookmarks || []).map((item, index) => (
+      typeof item === 'string'
+        ? { id: `legacy-${index}`, title: item, page: null, legacy: true }
+        : item
+    ))
+    const updateBookmark = (targetId, changes) => {
+      setPaperState((current) => ({
+        ...current,
+        bookmarks: (current.bookmarks || []).map((item, index) => {
+          const bookmark = typeof item === 'string' ? { id: `legacy-${index}`, title: item, page: null, legacy: true } : item
+          return bookmark.id === targetId ? { ...bookmark, ...changes } : item
+        }),
+      }))
+    }
+    const removeBookmark = (targetId) => {
+      setPaperState((current) => ({
+        ...current,
+        bookmarks: (current.bookmarks || []).filter((item, index) => {
+          const bookmark = typeof item === 'string' ? { id: `legacy-${index}`, title: item, page: null, legacy: true } : item
+          return bookmark.id !== targetId
+        }),
+      }))
+    }
     return (
       <div className="left-panel">
         <h3>书签</h3>
         <button
           className="wide-action"
           type="button"
-          onClick={() => setPaperState((current) => ({
-            ...current,
-            bookmarks: [`第 ${current.currentPage} 页`, ...current.bookmarks.filter((item) => item !== `第 ${current.currentPage} 页`)],
-          }))}
+          onClick={() => {
+            setPaperState((current) => {
+              const page = current.currentPage || 1
+              const title = `第 ${page} 页`
+              const currentBookmarks = current.bookmarks || []
+              const filtered = currentBookmarks.filter((item) => {
+                const bookmark = typeof item === 'string' ? { title: item, page: null } : item
+                return bookmark.page !== page
+              })
+              return {
+                ...current,
+                bookmarks: [
+                  {
+                    id: `bookmark-${Date.now()}`,
+                    title,
+                    page,
+                    color: '#35568a',
+                    createdAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+                  },
+                  ...filtered,
+                ],
+              }
+            })
+          }}
         >
           添加当前页书签
         </button>
-        {paperState.bookmarks.map((item) => (
-          <button className="simple-row" type="button" key={item} onClick={() => setRightTab('notes')}>
-            <span>{item}</span>
-            <ChevronRight size={15} />
-          </button>
-        ))}
+        {bookmarks.length > 0 ? bookmarks.map((item) => (
+          <article
+            className={`bookmark-card ${item.page === paperState.currentPage ? 'active' : ''}`}
+            key={item.id || item.title}
+            style={{ '--bookmark-color': item.color || '#35568a' }}
+          >
+            <div className="bookmark-main">
+              <span className="bookmark-color-dot" />
+              <span>
+                <input
+                  className="bookmark-name-input"
+                  value={item.title}
+                  aria-label="书签名称"
+                  onChange={(event) => updateBookmark(item.id, { title: event.target.value })}
+                />
+                <small>{item.page ? `第 ${item.page} 页${item.createdAt ? ` · ${item.createdAt}` : ''}` : '旧书签缺少页码，不能跳转'}</small>
+              </span>
+              <button
+                className="bookmark-jump"
+                type="button"
+                onClick={() => {
+                  if (!item.page) {
+                    setRightTab('notes')
+                    return
+                  }
+                  setPaperState((current) => ({
+                    ...current,
+                    currentPage: item.page,
+                    navigationTarget: { id: Date.now(), page: item.page, y: null },
+                  }))
+                  setRightTab('notes')
+                }}
+              >
+                <ChevronRight size={15} />
+              </button>
+            </div>
+            <div className="bookmark-controls">
+              <div className="bookmark-swatches">
+                {bookmarkColors.map((color) => (
+                  <button
+                    type="button"
+                    key={color}
+                    className={item.color === color ? 'selected' : ''}
+                    style={{ '--swatch-color': color }}
+                    aria-label="修改书签颜色"
+                    onClick={() => updateBookmark(item.id, { color })}
+                  />
+                ))}
+              </div>
+              <button type="button" className="bookmark-delete" onClick={() => removeBookmark(item.id)}>
+                删除
+              </button>
+            </div>
+          </article>
+        )) : (
+          <p className="panel-status">还没有书签。滚动到目标页后点击上方按钮，可以在页面上留下标记。</p>
+        )}
       </div>
     )
   }

@@ -78,8 +78,7 @@ button {
 
 .mode,
 .header-actions button,
-.privacy-strip button,
-.toolbar-actions button {
+.privacy-strip button {
   border: 1px solid transparent;
   background: transparent;
   color: #5f6f8e;
@@ -647,10 +646,36 @@ button {
   background: #ffffff;
 }
 
+.page-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.page-card-head div {
+  display: flex;
+  gap: 8px;
+}
+
+.page-card-head button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #8b9bc1;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #35568a;
+}
+
 .page-card-panel h3 {
   margin: 0 0 16px;
   color: #27344d;
   font-size: 18px;
+}
+
+.page-card-head h3 {
+  margin: 0;
 }
 
 .page-card-grid {
@@ -1780,22 +1805,14 @@ button {
 }
 
 .right-sidebar .sidebar-tabs {
-  padding-left: 48px;
-  padding-right: 24px;
-  scroll-padding-left: 48px;
-}
-
-.right-sidebar .sidebar-tabs::-webkit-scrollbar {
-  height: 6px;
-}
-
-.right-sidebar .sidebar-tabs::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: #c5cfdd;
-}
-
-.right-sidebar .sidebar-tabs::-webkit-scrollbar-track {
-  background: transparent;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  min-height: 96px;
+  max-height: 132px;
+  padding: 10px 14px 10px 48px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
 }
 
 .icon-tab {
@@ -1875,6 +1892,118 @@ button {
   line-height: 1.35;
 }
 
+.bookmark-card {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #e0e8f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.bookmark-card + .bookmark-card {
+  margin-top: 8px;
+}
+
+.bookmark-card.active {
+  border-color: #8b9bc1;
+  background: #f5f8fc;
+}
+
+.bookmark-main {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 0;
+  color: #27344d;
+  text-align: left;
+}
+
+.bookmark-main small {
+  display: block;
+  margin-top: 3px;
+  color: #5f6f8e;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.bookmark-name-input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #27344d;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.bookmark-name-input:focus {
+  border-color: #8b9bc1;
+  background: #ffffff;
+  outline: none;
+}
+
+.bookmark-jump {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d8e1ee;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #35568a;
+  cursor: pointer;
+}
+
+.bookmark-color-dot {
+  width: 9px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--bookmark-color, #35568a);
+}
+
+.bookmark-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  align-items: center;
+}
+
+.bookmark-swatches {
+  display: flex;
+  gap: 5px;
+}
+
+.bookmark-swatches button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--swatch-color);
+  cursor: pointer;
+}
+
+.bookmark-swatches button.selected {
+  outline: 2px solid #8b9bc1;
+  outline-offset: 2px;
+}
+
+.bookmark-delete {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #d8e1ee;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #35568a;
+  cursor: pointer;
+}
+
 .thumb-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1944,34 +2073,6 @@ button {
   overflow: auto;
 }
 
-.reader-toolbar {
-  height: 50px;
-  padding: 0 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #ffffff;
-  border-bottom: 1px solid #e0e8f2;
-}
-
-.reader-toolbar div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #35568a;
-  font-size: 13px;
-}
-
-.toolbar-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.toolbar-actions button {
-  background: #ffffff;
-  border-color: #e0e8f2;
-}
-
 .pdf-page {
   width: min(760px, calc(100% - 42px));
   min-height: 920px;
@@ -2031,6 +2132,36 @@ button {
   font-size: 12px;
 }
 
+.pdf-bookmark-marker {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  z-index: 6;
+  min-width: 42px;
+  padding: 7px 8px 8px;
+  border-radius: 0 0 7px 7px;
+  background: var(--bookmark-color, #35568a);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 720;
+  text-align: center;
+  box-shadow: 0 4px 10px rgb(39 52 77 / 16%);
+}
+
+.pdf-bookmark-marker::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border-left: 21px solid transparent;
+  border-right: 21px solid transparent;
+  border-top: 8px solid var(--bookmark-color, #35568a);
+}
+
 .pdf-page-canvas {
   display: block;
   background: #ffffff;
@@ -2051,20 +2182,50 @@ button {
   text-size-adjust: none;
   forced-color-adjust: none;
   transform-origin: 0 0;
-  z-index: 3;
+  z-index: 2;
+  pointer-events: none;
   caret-color: #27344d;
   --min-font-size: 1;
   --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
   --min-font-size-inv: calc(1 / var(--min-font-size));
 }
 
+.paragraph-hit-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.paragraph-region {
+  position: absolute;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.paragraph-region:hover {
+  border-color: rgb(53 86 138 / 22%);
+  background: rgb(53 86 138 / 5%);
+}
+
+.paragraph-region.active {
+  border-color: rgb(53 86 138 / 48%);
+  background: rgb(53 86 138 / 13%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 60%);
+}
+
 .reader-text-layer :is(span, br) {
   color: transparent;
   position: absolute;
   white-space: pre;
-  cursor: text;
+  cursor: default;
   transform-origin: 0% 0%;
-  user-select: text;
+  user-select: none;
+  pointer-events: none;
 }
 
 .reader-text-layer > :not(.markedContent),
@@ -2366,6 +2527,172 @@ button {
   font-size: 13px;
 }
 
+.reference-link-row {
+  color: inherit;
+  text-decoration: none;
+}
+
+.reference-link-row span {
+  min-width: 0;
+}
+
+.reference-link-row small {
+  color: #5f6f8e;
+}
+
+.ai-chat-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.ai-chat-messages {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 4px 2px 12px;
+}
+
+.ai-chat-message {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid #e0e8f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.ai-chat-message.user {
+  background: #e0e8f2;
+  border-color: #8b9bc1;
+}
+
+.ai-chat-message span {
+  color: #35568a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ai-chat-message p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: #27344d;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ai-chat-input {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #e0e8f2;
+}
+
+.ai-chat-input textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 86px;
+  border: 1px solid #d8e1ed;
+  border-radius: 8px;
+  padding: 10px;
+  color: #27344d;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.ai-chat-input button {
+  min-height: 36px;
+  border: 1px solid #35568a;
+  border-radius: 8px;
+  background: #35568a;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.ai-chat-input button:disabled {
+  cursor: not-allowed;
+  border-color: #d8e1ed;
+  background: #e0e8f2;
+  color: #8b9bc1;
+}
+
+.empty-card {
+  padding: 14px;
+  border: 1px solid #e0e8f2;
+  border-radius: 8px;
+  background: #f7f9fc;
+  color: #4d5f80;
+}
+
+.empty-card strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #27344d;
+  font-size: 13px;
+}
+
+.empty-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.figure-note-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  padding: 12px;
+  border: 1px solid #e0e8f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.figure-note-card em {
+  min-width: 38px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #f1d6d6;
+  color: #35568a;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.figure-note-card strong {
+  display: block;
+  color: #27344d;
+  font-size: 13px;
+}
+
+.figure-note-card small {
+  color: #5f6f8e;
+  font-size: 12px;
+}
+
+.figure-note-card p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #4d5f80;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.figure-note-card p b {
+  display: block;
+  margin-bottom: 3px;
+  color: #27344d;
+}
+
+.figure-note-card .source {
+  padding-top: 8px;
+  border-top: 1px dashed #d8e1ed;
+  color: #5f6f8e;
+}
+
 .question-row {
   justify-content: space-between;
 }
@@ -2437,6 +2764,40 @@ button {
   line-height: 1.6;
 }
 
+.ai-output-card {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e0e8f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.ai-output-card.muted {
+  background: #f7f9fc;
+}
+
+.ai-output-card h4 {
+  margin: 0 0 10px;
+  color: #27344d;
+  font-size: 14px;
+}
+
+.ai-output-card p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: #4d5f80;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.figure-ai-summary {
+  margin: 12px 0;
+}
+
+.figure-ai-summary p + p {
+  margin-top: 8px;
+}
+
 .segmented {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2503,6 +2864,69 @@ button {
   color: #4d5f80;
   font-size: 13px;
   line-height: 1.55;
+}
+
+.translation-view .clickable-translation {
+  margin: 8px 0 0;
+  color: #4d5f80;
+  font-size: 14px;
+  line-height: 1.72;
+  text-align: left;
+  text-indent: 0;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.translation-view .clickable-translation:first-of-type {
+  margin-top: 0;
+}
+
+.clickable-translation .word-tooltip {
+  position: relative;
+  display: inline;
+  padding: 0 1px;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: help;
+}
+
+.clickable-translation .word-tooltip:hover,
+.clickable-translation .word-tooltip:focus {
+  background: rgb(53 86 138 / 12%);
+  color: #27344d;
+  outline: none;
+}
+
+.clickable-translation .word-tooltip::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  width: max-content;
+  max-width: 220px;
+  padding: 7px 9px;
+  border: 1px solid #d8e1ee;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #27344d;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 8px 22px rgb(39 52 77 / 15%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.clickable-translation .word-tooltip:hover::after,
+.clickable-translation .word-tooltip:focus::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .summary-stack,

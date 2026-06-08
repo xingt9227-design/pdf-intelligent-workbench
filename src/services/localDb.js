@@ -1,5 +1,4 @@
-const DB_NAME = 'pdf-intelligent-workbench'
-const DB_VERSION = 1
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:3001/api'
 
 const STORES = {
   documents: 'documents',
@@ -7,65 +6,69 @@ const STORES = {
   exports: 'exports',
 }
 
-let dbPromise
-
-const openDb = () => {
-  if (dbPromise) return dbPromise
-
-  dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
-
-    request.onupgradeneeded = () => {
-      const db = request.result
-      Object.values(STORES).forEach((storeName) => {
-        if (!db.objectStoreNames.contains(storeName)) {
-          db.createObjectStore(storeName, { keyPath: 'id' })
-        }
-      })
-    }
-
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
-
-  return dbPromise
+const encodeBinaryFields = (value) => {
+  if (!value || typeof value !== 'object') return value
+  const nextValue = { ...value }
+  if (nextValue.bytes instanceof ArrayBuffer) {
+    nextValue.bytes = Array.from(new Uint8Array(nextValue.bytes))
+    nextValue.bytesEncoding = 'uint8-array'
+  }
+  if (nextValue.blob instanceof Blob) {
+    delete nextValue.blob
+    nextValue.blobOmitted = true
+  }
+  return nextValue
 }
 
-const runStore = async (storeName, mode, action) => {
-  const db = await openDb()
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(storeName, mode)
-    const store = transaction.objectStore(storeName)
-    const request = action(store)
+const decodeBinaryFields = (value) => {
+  if (!value || typeof value !== 'object') return value
+  const nextValue = { ...value }
+  if (nextValue.bytesEncoding === 'uint8-array' && Array.isArray(nextValue.bytes)) {
+    nextValue.bytes = new Uint8Array(nextValue.bytes).buffer
+  }
+  return nextValue
+}
 
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
+const requestJson = async (url, options) => {
+  const response = await fetch(url, options)
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.error || `数据库请求失败 ${response.status}`)
+  }
+  if (response.status === 204) return null
+  return response.json()
 }
 
 export const localDb = {
   async list(storeName) {
-    return runStore(storeName, 'readonly', (store) => store.getAll())
+    const values = await requestJson(`${API_BASE}/${storeName}`)
+    return values.map(decodeBinaryFields)
   },
 
   async put(storeName, value) {
-    await runStore(storeName, 'readwrite', (store) => store.put(value))
-    return value
+    const encoded = encodeBinaryFields(value)
+    const saved = await requestJson(`${API_BASE}/${storeName}/${encodeURIComponent(encoded.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(encoded),
+    })
+    return decodeBinaryFields(saved)
   },
 
   async putMany(storeName, values) {
-    const db = await openDb()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(storeName, 'readwrite')
-      const store = transaction.objectStore(storeName)
-      values.forEach((value) => store.put(value))
-      transaction.oncomplete = () => resolve(values)
-      transaction.onerror = () => reject(transaction.error)
+    const encoded = values.map(encodeBinaryFields)
+    const saved = await requestJson(`${API_BASE}/${storeName}/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(encoded),
     })
+    return saved.map(decodeBinaryFields)
   },
 
   async remove(storeName, id) {
-    await runStore(storeName, 'readwrite', (store) => store.delete(id))
+    await requestJson(`${API_BASE}/${storeName}/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
   },
 
   stores: STORES,
